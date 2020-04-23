@@ -142,19 +142,24 @@ export const updateAccountInfoAfterNLP = functions.firestore
                             const accountData = doc.data();
                             if (accountData) {
                                 let priority = "high" as const;
+
                                 var message = {
+                                    topic: data_after.cluster_id,
                                     notification: {
                                         title: accountData.name,
                                         body: data_after.text,
                                     },
                                     data: {
-                                        click_action: "FLUTTER_NOTIFICATION_CLICK",
+                                        click_action: 'FLUTTER_NOTIFICATION_CLICK',
                                         news_group_id: data_after.cluster_id,
                                     },
                                     android: {
-                                        priority: priority
+                                        priority: priority,
+                                        notification: {
+                                            sound: 'default',
+                                            channel_id: 'very_important',
+                                        },
                                     },
-                                    topic: data_after.cluster_id
                                 };
 
                                 admin.messaging().send(message)

@@ -9,7 +9,7 @@ interface Dic {
 }
 
 export const increaseFirstNewsScore = functions.firestore
-    .document('clusters/{cluster_id}')
+    .document('newsgroups/{newsgroup_id}')
     .onCreate((snapshot, context) => {
         const data = snapshot.data();
         const db = admin.firestore();
@@ -21,8 +21,8 @@ export const increaseFirstNewsScore = functions.firestore
                     .then(doc => {
                         const accountData = doc.data();
                         if (accountData) {
-                            const newNumber = accountData.number_of_first_news_in_group + 1;
-                            t.update(accountRef, { number_of_first_news_in_group: newNumber });
+                            const newNumber = accountData.news_group_leadership_count + 1;
+                            t.update(accountRef, { news_group_leadership_count: newNumber });
                         }
 
                     }).catch(err => {
@@ -36,21 +36,21 @@ export const increaseFirstNewsScore = functions.firestore
         }
     });
 
-export const increaseDisapprovalCount = functions.firestore
+export const increaseDislikeCount = functions.firestore
     .document('reports/{report_id}')
     .onCreate((snapshot, context) => {
         const data = snapshot.data();
         const db = admin.firestore();
         if (data) {
-            const disapprovedAccount = data.account;
-            const accountRef = db.collection('accounts').doc(disapprovedAccount);
+            const dislikedAccount = data.account;
+            const accountRef = db.collection('accounts').doc(dislikedAccount);
             db.runTransaction(t => {
                 return t.get(accountRef)
                     .then(doc => {
                         const accountData = doc.data();
                         if (accountData) {
-                            const newNumber = accountData.number_of_disapprovals + 1;
-                            t.update(accountRef, { number_of_disapprovals: newNumber });
+                            const newNumber = accountData.dislike_count + 1;
+                            t.update(accountRef, { dislike_count: newNumber });
                         }
 
                     }).catch(err => {
@@ -64,21 +64,21 @@ export const increaseDisapprovalCount = functions.firestore
         }
     });
 
-export const increaseApprovalCount = functions.firestore
+export const increaseLikeCount = functions.firestore
     .document('approvals/{approval_id}')
     .onCreate((snapshot, context) => {
         const data = snapshot.data();
         const db = admin.firestore();
         if (data) {
-            const approvedAccount = data.account;
-            const accountRef = db.collection('accounts').doc(approvedAccount);
+            const likedAccount = data.account;
+            const accountRef = db.collection('accounts').doc(likedAccount);
             db.runTransaction(t => {
                 return t.get(accountRef)
                     .then(doc => {
                         const accountData = doc.data();
                         if (accountData) {
-                            const newNumber = accountData.number_of_approvals + 1;
-                            t.update(accountRef, { number_of_approvals: newNumber });
+                            const newNumber = accountData.like_count + 1;
+                            t.update(accountRef, { like_count: newNumber });
                         }
 
                     }).catch(err => {
@@ -105,8 +105,8 @@ export const increaseReportCount = functions.firestore
                     .then(doc => {
                         const tweetData = doc.data();
                         if (tweetData) {
-                            const newNumber = tweetData.reports + 1;
-                            t.update(tweetRef, { reports: newNumber });
+                            const newNumber = tweetData.report_count + 1;
+                            t.update(tweetRef, { report_count: newNumber });
                         }
 
                     }).catch(err => {
@@ -128,7 +128,7 @@ export const updateAccountInfoAfterNLP = functions.firestore
         const db = admin.firestore();
 
         if (data_after && data_before) {
-            if (data_before.reports !== data_after.reports) {
+            if (data_before.report_count !== data_after.report_count) {
                 // If the change is in reports do nothing
             }
             else {
@@ -144,14 +144,14 @@ export const updateAccountInfoAfterNLP = functions.firestore
                                 let priority = "high" as const;
 
                                 var message = {
-                                    topic: data_after.cluster_id,
+                                    topic: data_after.news_group_id,
                                     notification: {
                                         title: accountData.name,
                                         body: data_after.text,
                                     },
                                     data: {
                                         click_action: 'FLUTTER_NOTIFICATION_CLICK',
-                                        news_group_id: data_after.cluster_id,
+                                        news_group_id: data_after.news_group_id,
                                     },
                                     android: {
                                         priority: priority,
@@ -175,14 +175,14 @@ export const updateAccountInfoAfterNLP = functions.firestore
                                 if (categoryCount) {
                                     let newData = <Dic>{
                                         [categoryOfTweet]: categoryCount + 1,
-                                        number_of_total_news: accountData.number_of_total_news + 1
+                                        news_count: accountData.news_count + 1
                                     };
                                     t.update(accountRef, newData);
                                 }
                                 else {
                                     let newData = <Dic>{
                                         [categoryOfTweet]: 1,
-                                        number_of_total_news: accountData.number_of_total_news + 1
+                                        news_count: accountData.news_count + 1
                                     };
                                     t.set(accountRef, newData, { merge: true });
                                 }

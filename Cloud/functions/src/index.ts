@@ -63,7 +63,7 @@ export const updateNewsGroupCategory = functions.firestore
                             let map = doc.get("category_map") ? doc.get("category_map") : {};
                             const old_dominant_category = news_group_data.category;
                             let new_dominant_category = "";
-                            let max_category_count = 0;
+                            let max_category_count = map[old_dominant_category];
 
                             for (let key in map) {
                                 let count = map[key];

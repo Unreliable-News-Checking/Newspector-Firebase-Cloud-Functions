@@ -290,21 +290,20 @@ export const updateAccountInfoAfterNLP = functions.firestore
                             const photos = data_after.photos;
                             let photo_url = ""
 
-                            if (photos.length > 0)
-                            {
+                            if (photos.length > 0) {
                                 photo_url = photos[0];
                             }
 
                             if (accountData) {
                                 let priority = "high" as const;
-                                
-                            
+
                                 //set the message that will be sent to users following the topic
                                 var message = {
                                     topic: data_after.news_group_id,
                                     notification: {
                                         title: accountData.name,
                                         body: data_after.text,
+                                        image: photo_url
                                     },
                                     data: {
                                         click_action: 'FLUTTER_NOTIFICATION_CLICK',
@@ -316,7 +315,7 @@ export const updateAccountInfoAfterNLP = functions.firestore
                                         priority: priority,
                                         notification: {
                                             sound: 'default',
-                                            channel_id: 'very_important',
+                                            channelId: 'very_important',
                                         },
                                     },
                                 };
@@ -329,7 +328,6 @@ export const updateAccountInfoAfterNLP = functions.firestore
                                     .catch((error) => {
                                         console.log('Error sending message:', error);
                                     });
-
 
                                 //update the category count for the account which is the owner of this tweet
                                 let map = doc.get("category_map") ? doc.get("category_map") : {};

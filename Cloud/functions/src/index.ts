@@ -74,11 +74,12 @@ export const updateNewsGroupCategory = functions.firestore
 
                             for (let key in map) {
                                 let count = map[key];
-                                if (count && count > max_category_count) {
+                                if (count && count > max_category_count && key !== "-") {
                                     new_dominant_category = key;
                                     max_category_count = count;
                                 }
                             }
+
 
                             //if the perceived category has a new value 
                             if (old_dominant_category !== new_dominant_category) {
@@ -120,7 +121,6 @@ export const updateNewsGroupCategory = functions.firestore
                                 .catch(err => {
                                     console.log('Error getting documents', err);
                                 });
-
 
                         }
                     }).catch(err => {
@@ -287,11 +287,18 @@ export const updateAccountInfoAfterNLP = functions.firestore
                         .then(doc => {
                             const accountData = doc.data();
                             const categoryOfTweet = data_after.category;
+                            const photos = data_after.photos;
+                            let photo_url = ""
 
+                            if (photos.length > 0)
+                            {
+                                photo_url = photos[0];
+                            }
 
                             if (accountData) {
                                 let priority = "high" as const;
-
+                                
+                            
                                 //set the message that will be sent to users following the topic
                                 var message = {
                                     topic: data_after.news_group_id,
@@ -324,22 +331,21 @@ export const updateAccountInfoAfterNLP = functions.firestore
                                     });
 
 
-                                if (categoryOfTweet !== "-") {
-                                    //update the category count for the account which is the owner of this tweet
-                                    let map = doc.get("category_map") ? doc.get("category_map") : {};
-                                    if (map[categoryOfTweet]) {
-                                        map[categoryOfTweet] = map[categoryOfTweet] + 1;
+                                //update the category count for the account which is the owner of this tweet
+                                let map = doc.get("category_map") ? doc.get("category_map") : {};
+                                if (map[categoryOfTweet]) {
+                                    map[categoryOfTweet] = map[categoryOfTweet] + 1;
 
-                                        t.update(accountRef, { category_map: map, news_count: accountData.news_count + 1 });
-                                    }
-                                    else if (!map[categoryOfTweet]) {
-                                        map[categoryOfTweet] = 1;
-
-                                        t.set(accountRef, { category_map: map, news_count: accountData.news_count + 1 }, { merge: true });
-                                    } else {
-                                        console.log('There is a mistake resulting by previous updates (old_perceived_category), Check other triggers!');
-                                    }
+                                    t.update(accountRef, { category_map: map, news_count: accountData.news_count + 1 });
                                 }
+                                else if (!map[categoryOfTweet]) {
+                                    map[categoryOfTweet] = 1;
+
+                                    t.set(accountRef, { category_map: map, news_count: accountData.news_count + 1 }, { merge: true });
+                                } else {
+                                    console.log('There is a mistake resulting by previous updates (old_perceived_category), Check other triggers!');
+                                }
+
                             }
                         }).catch(err => {
                             console.log('Update failure:', err);
@@ -355,28 +361,42 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 db.runTransaction(t => {
                     return t.get(newsGroupRef)
                         .then(doc => {
-
+                            const accountID = data_after.username;
                             const categoryOfTweet = data_after.category;
                             const newsGroupData = doc.data();
                             if (newsGroupData) {
 
-                                if (categoryOfTweet !== "-") {
-                                    //update the category count for the newsgroup that this tweet belongs to
-                                    let map = doc.get("category_map") ? doc.get("category_map") : {};
+                                //update the source_count_map
+                                let source_count_map = doc.get("source_count_map") ? doc.get("source_count_map") : {};
+                                let merge_source_count_map = false;
 
-                                    if (map[categoryOfTweet]) {
-                                        map[categoryOfTweet] = map[categoryOfTweet] + 1;
+                                if (source_count_map[accountID]) {
+                                    source_count_map[accountID] = source_count_map[accountID] + 1;
+                                }
+                                else if (!source_count_map[accountID]) {
+                                    source_count_map[accountID] = 1;
+                                    merge_source_count_map = true;
+                                }
 
-                                        t.update(newsGroupRef, { category_map: map });
+                                //update the category count for the newsgroup that this tweet belongs to
+                                let map = doc.get("category_map") ? doc.get("category_map") : {};
+
+                                if (map[categoryOfTweet]) {
+                                    map[categoryOfTweet] = map[categoryOfTweet] + 1;
+
+                                    if (merge_source_count_map) {
+                                        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
                                     }
-                                    else if (!map[categoryOfTweet]) {
-                                        map[categoryOfTweet] = 1;
-
-                                        t.set(newsGroupRef, { category_map: map }, { merge: true });
-                                    } else {
-                                        console.log('There is a mistake resulting by previous updates (old_perceived_category), Check other triggers!');
+                                    else {
+                                        t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map });
                                     }
                                 }
+                                else if (!map[categoryOfTweet]) {
+                                    map[categoryOfTweet] = 1;
+
+                                    t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
+                                }
+
                             }
                         }).catch(err => {
                             console.log('Update failure:', err);

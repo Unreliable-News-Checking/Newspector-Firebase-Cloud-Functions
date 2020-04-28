@@ -62,8 +62,15 @@ export const updateNewsGroupCategory = functions.firestore
                         if (news_group_data) {
                             let map = doc.get("category_map") ? doc.get("category_map") : {};
                             const old_dominant_category = news_group_data.category;
-                            let new_dominant_category = "";
-                            let max_category_count = map[old_dominant_category];
+                            let new_dominant_category = old_dominant_category;
+                            let max_category_count = 0;
+
+                            try {
+                                if (map[old_dominant_category] > 0) {
+                                    max_category_count = map[old_dominant_category];
+                                }
+                            }
+                            catch{ Error }
 
                             for (let key in map) {
                                 let count = map[key];
@@ -295,6 +302,8 @@ export const updateAccountInfoAfterNLP = functions.firestore
                                     data: {
                                         click_action: 'FLUTTER_NOTIFICATION_CLICK',
                                         news_group_id: data_after.news_group_id,
+                                        title: accountData.name,
+                                        body: data_after.text
                                     },
                                     android: {
                                         priority: priority,

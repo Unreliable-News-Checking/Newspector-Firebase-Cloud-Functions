@@ -10,8 +10,8 @@ export const increaseFirstNewsScore = functions.firestore
         const data = snapshot.data();
         const db = admin.firestore();
         if (data) {
-            const groupLeader = data.groupLeader;
-            const accountRef = db.collection('accounts').doc(groupLeader);
+            const group_leader = data.group_leader;
+            const accountRef = db.collection('accounts').doc(group_leader);
             db.runTransaction(t => {
                 return t.get(accountRef)
                     .then(doc => {

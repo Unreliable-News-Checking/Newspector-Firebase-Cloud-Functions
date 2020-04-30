@@ -112,95 +112,95 @@ admin.initializeApp();
 export const updateAccountInfoAfterNLP = functions.firestore
     .document('tweets/{tweet_id}')
     .onUpdate((change, context) => {
-        const data_after = change.after.data();
-        const data_before = change.before.data();
+        //const data_after = change.after.data();
+        //const data_before = change.before.data();
         //const db = admin.firestore();
 
-        if (data_after && data_before) {
-            if (data_before.report_count !== data_after.report_count) {
-                // If the change is in reports do nothing
-                // This blocks a chain trigger that results after creating a report about a tweet
-                return;
-            }
-            else if (data_before.perceived_category !== data_after.perceived_category && data_before.news_group_id !== "") {
-                //do nothing
-                return;
-            }
-            else if (data_before.news_group_id !== data_after.news_group_id) {
-                // if it is the first time tweet's news_group_id set (new tweet) 
-                // update the category count in the account document 
-                // send topic message to users following the news_group_id
-                // update the category count in the news group document
+        // if (data_after && data_before) {
+        //     if (data_before.report_count !== data_after.report_count) {
+        //         // If the change is in reports do nothing
+        //         // This blocks a chain trigger that results after creating a report about a tweet
+        //         return;
+        //     }
+        //     else if (data_before.perceived_category !== data_after.perceived_category && data_before.news_group_id !== "") {
+        //         //do nothing
+        //         return;
+        //     }
+        //     else if (data_before.news_group_id !== data_after.news_group_id) {
+        // if it is the first time tweet's news_group_id set (new tweet) 
+        // update the category count in the account document 
+        // send topic message to users following the news_group_id
+        // update the category count in the news group document
 
-                //         const account = data_after.username;
-                //         const news_group_id = data_after.news_group_id;
-                //         const accountRef = db.collection('accounts').doc(account);
-                //         const newsGroupRef = db.collection('news_groups').doc(news_group_id);
-                //         let merge_source_count_map = false;
+        //         const account = data_after.username;
+        //         const news_group_id = data_after.news_group_id;
+        //         const accountRef = db.collection('accounts').doc(account);
+        //         const newsGroupRef = db.collection('news_groups').doc(news_group_id);
+        //         let merge_source_count_map = false;
 
-                //         // Get the photos(urls) from the tweet data
-                //         const photos = data_after.photos;
-                //         let photo_url = ""
+        //         // Get the photos(urls) from the tweet data
+        //         const photos = data_after.photos;
+        //         let photo_url = ""
 
-                //         //Get photo url if present
-                //         if (photos.length > 0) {
-                //             photo_url = photos[0];
-                //         }
+        //         //Get photo url if present
+        //         if (photos.length > 0) {
+        //             photo_url = photos[0];
+        //         }
 
-                //         //Send topic message to all users following the newsgroup
-                //         sendTopicMessage(photo_url, account, data_after.text, data_after.news_group_id);
+        //         //Send topic message to all users following the newsgroup
+        //         sendTopicMessage(photo_url, account, data_after.text, data_after.news_group_id);
 
-                //         db.runTransaction(async t => {
-                //             return t.getAll(newsGroupRef, accountRef)
-                //                 .then(docs => {
-                //                     // const newsGroupDoc = docs[0]; //newsgroup document for tweet
-                //                     // const accountDoc = docs[1]; //account document for tweet
+        //         db.runTransaction(async t => {
+        //             return t.getAll(newsGroupRef, accountRef)
+        //                 .then(docs => {
+        //                     // const newsGroupDoc = docs[0]; //newsgroup document for tweet
+        //                     // const accountDoc = docs[1]; //account document for tweet
 
-                //                     // const accountID = data_after.username; //id of account, used for map updates
-                //                     // const categoryOfTweet = data_after.category; //category of the tweet received
+        //                     // const accountID = data_after.username; //id of account, used for map updates
+        //                     // const categoryOfTweet = data_after.category; //category of the tweet received
 
-                //                     // //Source_count_map
-                //                     // let source_count_map = newsGroupDoc.get("source_count_map") ? newsGroupDoc.get("source_count_map") : {};
+        //                     // //Source_count_map
+        //                     // let source_count_map = newsGroupDoc.get("source_count_map") ? newsGroupDoc.get("source_count_map") : {};
 
-                //                     // //changeValue for membership count
-                //                     // let changeValue = 0
+        //                     // //changeValue for membership count
+        //                     // let changeValue = 0
 
-                //                     // //If the field exists changeValue is 0 and field value increases by 1
-                //                     // //if the field is missing changeValue is 1 and field values is set to 1
-                //                     // if (accountID in source_count_map) {
-                //                     //     source_count_map[accountID] = source_count_map[accountID] + 1;
-                //                     // }
-                //                     // else if (!(accountID in source_count_map)) {
-                //                     //     source_count_map[accountID] = 1;
-                //                     //     merge_source_count_map = true;
-                //                     //     changeValue = 1;
-                //                     // }
-
-
-                //                     // //update newscount and newsgroupmembership count of the account
-                //                     // t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1 });
-
-                //                     //update the category count for the newsgroup that this tweet belongs to
-                //                     //updateCategoryMapForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map);
+        //                     // //If the field exists changeValue is 0 and field value increases by 1
+        //                     // //if the field is missing changeValue is 1 and field values is set to 1
+        //                     // if (accountID in source_count_map) {
+        //                     //     source_count_map[accountID] = source_count_map[accountID] + 1;
+        //                     // }
+        //                     // else if (!(accountID in source_count_map)) {
+        //                     //     source_count_map[accountID] = 1;
+        //                     //     merge_source_count_map = true;
+        //                     //     changeValue = 1;
+        //                     // }
 
 
-                //                 }).then(result => {
-                //                     console.log("Inner Transaction Success!");
-                //                 }).catch(err => {
-                //                     console.log('Inner Update failure:', err);
-                //                 });
+        //                     // //update newscount and newsgroupmembership count of the account
+        //                     // t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1 });
 
-                //         }).then(result => {
-                //             console.log('Outer Transaction success!');
-                //         }).catch(err => {
-                //             console.log('Outer Transaction failure:', err);
-                //         });
-                //     }
-                //     else {
-                //         console.log("Chain Trigger Execution Blocked");
-                //         return;
-            }
-        }
+        //                     //update the category count for the newsgroup that this tweet belongs to
+        //                     //updateCategoryMapForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map);
+
+
+        //                 }).then(result => {
+        //                     console.log("Inner Transaction Success!");
+        //                 }).catch(err => {
+        //                     console.log('Inner Update failure:', err);
+        //                 });
+
+        //         }).then(result => {
+        //             console.log('Outer Transaction success!');
+        //         }).catch(err => {
+        //             console.log('Outer Transaction failure:', err);
+        //         });
+        //     }
+        //     else {
+        //         console.log("Chain Trigger Execution Blocked");
+        //         return;
+        //}
+        // }
     });
 
 // function updateCategoryMapForNewsGroup(newsGroupDoc: admin.firestore.DocumentData, categoryOfTweet: string, newsGroupRef: admin.firestore.DocumentReference, t: admin.firestore.Transaction, merge_source_count_map: boolean, source_count_map: Object) {

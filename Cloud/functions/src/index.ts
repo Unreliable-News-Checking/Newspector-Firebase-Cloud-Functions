@@ -139,55 +139,50 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 let merge_source_count_map = false;
 
                 db.runTransaction(async t => {
-                    return Promise.all([t.get(newsGroupRef), t.get(accountRef)])
-                        .then((docs) => {
-                            let newsGroupDoc = docs[0]; //newsgroup document for tweet
-                            let accountDoc = docs[1]; //account document for tweet
+                    return t.getAll(newsGroupRef, accountRef)
+                        .then(docs => {
+                            const newsGroupDoc = docs[0]; //newsgroup document for tweet
+                            const accountDoc = docs[1]; //account document for tweet
                             const accountID = data_after.username; //id of account, used for map updates
                             const categoryOfTweet = data_after.category; //category of the tweet received
-                            const newsGroupData = newsGroupDoc.data(); //newsgroup data
-                            const accountData = accountDoc.data(); //account data
 
-                            if (newsGroupData) {
+                            //Source_count_map
+                            let source_count_map = newsGroupDoc.get("source_count_map") ? newsGroupDoc.get("source_count_map") : {};
 
-                                //Source_count_map
-                                let source_count_map = newsGroupDoc.get("source_count_map") ? newsGroupDoc.get("source_count_map") : {};
+                            //changeValue for membership count
+                            let changeValue = 0
 
-                                //changeValue for membership count
-                                let changeValue = 0
-
-                                //If the field exists changeValue is 0 and field value increases by 1
-                                //if the field is missing changeValue is 1 and field values is set to 1
-                                if (accountID in source_count_map) {
-                                    source_count_map[accountID] = source_count_map[accountID] + 1;
-                                }
-                                else if (!(accountID in source_count_map)) {
-                                    source_count_map[accountID] = 1;
-                                    merge_source_count_map = true;
-                                    changeValue = 1;
-                                }
-
-                                // Get the photos(urls) from the tweet data
-                                const photos = data_after.photos;
-                                let photo_url = ""
-
-                                //Get photo url if present
-                                if (photos.length > 0) {
-                                    photo_url = photos[0];
-                                }
-
-                                if (accountData) {
-                                    //Send topic message to all users following the newsgroup
-                                    sendTopicMessage(photo_url, accountData.name, data_after.text, data_after.news_group_id);
-
-                                    //update newscount and newsgroupmembership count of the account
-                                    t.update(accountRef, { news_group_membership_count: accountData.news_group_membership_count + changeValue, news_count: accountData.news_count + 1 });
-                                }
-
-                                //update the category count for the newsgroup that this tweet belongs to
-                                updateCategoryMapForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map);
-
+                            //If the field exists changeValue is 0 and field value increases by 1
+                            //if the field is missing changeValue is 1 and field values is set to 1
+                            if (accountID in source_count_map) {
+                                source_count_map[accountID] = source_count_map[accountID] + 1;
                             }
+                            else if (!(accountID in source_count_map)) {
+                                source_count_map[accountID] = 1;
+                                merge_source_count_map = true;
+                                changeValue = 1;
+                            }
+
+                            // Get the photos(urls) from the tweet data
+                            const photos = data_after.photos;
+                            let photo_url = ""
+
+                            //Get photo url if present
+                            if (photos.length > 0) {
+                                photo_url = photos[0];
+                            }
+
+
+                            //Send topic message to all users following the newsgroup
+                            sendTopicMessage(photo_url, accountDoc.get('name'), data_after.text, data_after.news_group_id);
+
+                            //update newscount and newsgroupmembership count of the account
+                            t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1 });
+
+                            //update the category count for the newsgroup that this tweet belongs to
+                            updateCategoryMapForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map);
+
+
                         }).then(result => {
                             console.log("Transaction Success!");
                         }).catch(err => {

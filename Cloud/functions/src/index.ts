@@ -4,136 +4,268 @@ import * as admin from 'firebase-admin';
 "use strict";
 admin.initializeApp();
 
-export const increaseFirstNewsScore = functions.firestore
-    .document('news_groups/{newsgroup_id}')
-    .onCreate((snapshot, context) => {
-        const data = snapshot.data();
-        const db = admin.firestore();
-        if (data) {
-            const group_leader = data.group_leader;
-            const accountRef = db.collection('accounts').doc(group_leader);
-            db.runTransaction(t => {
-                return t.get(accountRef)
-                    .then(doc => {
-                        const accountData = doc.data();
-                        if (accountData) {
-                            const newNumber = accountData.news_group_leadership_count + 1;
-                            t.update(accountRef, { news_group_leadership_count: newNumber });
-                        }
+// export const updateNewsGroupCategory = functions.firestore
+//     .document('news_groups/{newsgroup_id}')
+//     .onUpdate((change, context) => {
+//         const data_before = change.before.data();
+//         const data_after = change.after.data();
+//         const db = admin.firestore();
 
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-            }).then(result => {
-                console.log('Transaction success!');
-            }).catch(err => {
-                console.log('Transaction failure:', err);
-            });
-        }
-    });
+//         if (data_before && data_after) {
 
-export const updateNewsGroupCategory = functions.firestore
-    .document('news_groups/{newsgroup_id}')
-    .onUpdate((change, context) => {
-        const data_before = change.before.data();
+//             if (data_before.category !== data_after.category) {
+//                 //if the changed field is category do nothing
+//                 //this block a chain trigger resulting from updating the category after a new tweet changes the dominant category type
+//                 //the code for this operation given below
+//                 console.log("Category Changes")
+//                 return;
+//             }
+//             else if (data_after.status !== data_before.status) {
+
+//                 let perceived_category = data_after.category;
+//                 let map = data_after.source_count_map ? data_after.source_count_map : {};
+
+//                 for (let key in map) {
+//                     let accountRef = db.collection('accounts').doc(key);
+//                     let change_rate = map[key];
+//                     db.runTransaction(async t => {
+//                         return t.get(accountRef).then(doc => {
+
+//                             let account_map = doc.get("category_map") ? doc.get("category_map") : {};
+//                             if (perceived_category in account_map) {
+//                                 account_map[perceived_category] += change_rate;
+//                                 t.update(accountRef, { category_map: account_map });
+//                             }
+//                             else {
+//                                 account_map[perceived_category] = change_rate;
+//                                 t.set(accountRef, { category_map: account_map }, { merge: true });
+//                             }
+//                         }).catch(err => {
+//                             console.log('Update failure:', err);
+//                         });
+
+//                     }).then(result => {
+//                         console.log('Transaction success!');
+//                     }).catch(err => {
+//                         console.log('Transaction failure:', err);
+//                     });
+//                 }
+//                 console.log("Status Changes");
+//                 return;
+//             }
+//             else {
+//                 //when a new tweet is assigned a news_group_id the category counts get updated
+//                 //this section of the trigger calculates the new dominant category
+//                 //and updates the newsgroup document
+
+//                 db.runTransaction(async t => {
+//                     return t.get(change.after.ref)
+//                         .then(doc => {
+
+//                             //First find new percieved category of the newsgroup
+//                             const news_group_data = doc.data();
+//                             if (news_group_data) {
+//                                 let map = doc.get("category_map") ? doc.get("category_map") : {};
+//                                 const old_dominant_category = news_group_data.category;
+//                                 let new_dominant_category = old_dominant_category;
+//                                 let max_category_count = 0;
+
+//                                 try {
+//                                     if (old_dominant_category in map) {
+//                                         max_category_count = map[old_dominant_category];
+//                                     }
+//                                 }
+//                                 catch{ Error }
+
+//                                 for (let key in map) {
+//                                     let count = map[key];
+//                                     if (count && count > max_category_count && key !== "-") {
+//                                         new_dominant_category = key;
+//                                         max_category_count = count;
+//                                     }
+//                                 }
+
+//                                 //if the perceived category has a new value 
+//                                 if (old_dominant_category !== new_dominant_category) {
+//                                     //assign it to newsgroup 
+//                                     t.update(change.after.ref, { category: new_dominant_category });
+//                                 }
+
+//                             }
+//                         }).catch(err => {
+//                             console.log('Update failure:', err);
+//                         });
+
+//                 }).then(result => {
+//                     console.log('Transaction success!');
+//                 }).catch(err => {
+//                     console.log('Transaction failure:', err);
+//                 });
+
+//                 console.log("Perceived category assignment");
+//                 return;
+//             }
+//         }
+//     });
+
+
+export const updateAccountInfoAfterNLP = functions.firestore
+    .document('tweets/{tweet_id}')
+    .onUpdate(async (change, context) => {
         const data_after = change.after.data();
+        const data_before = change.before.data();
         const db = admin.firestore();
 
-        if (data_before && data_after) {
-
-            if (data_before.category !== data_after.category) {
-                //if the changed field is category do nothing
-                //this block a chain trigger resulting from updating the category after a new tweet changes the dominant category type
-                //the code for this operation given below
-
+        if (data_after && data_before) {
+            if (data_before.report_count !== data_after.report_count) {
+                // If the change is in reports do nothing
+                // This blocks a chain trigger that results after creating a report about a tweet
                 return;
             }
+            else if (data_before.perceived_category !== data_after.perceived_category && data_before.news_group_id !== "") {
+                //do nothing
+                return;
+            }
+            else if (data_before.news_group_id !== data_after.news_group_id) {
+                // if it is the first time tweet's news_group_id set (new tweet) 
+                // update the category count in the account document 
+                // send topic message to users following the news_group_id
+                // update the category count in the news group document
 
-            //when a new tweet is assigned a news_group_id the category counts get updated
-            //this section of the trigger calculates the new dominant category
-            //and updates the newsgroup document
+                const account = data_after.username;
+                const news_group_id = data_after.news_group_id;
+                const accountRef = db.collection('accounts').doc(account);
+                const newsGroupRef = db.collection('news_groups').doc(news_group_id);
+                let merge_source_count_map = false;
 
-            db.runTransaction(t => {
-                return t.get(change.after.ref)
-                    .then(doc => {
+                db.runTransaction(async t => {
+                    return Promise.all([t.get(newsGroupRef), t.get(accountRef)])
+                        .then((docs) => {
+                            let newsGroupDoc = docs[0]; //newsgroup document for tweet
+                            let accountDoc = docs[1]; //account document for tweet
+                            const accountID = data_after.username; //id of account, used for map updates
+                            const categoryOfTweet = data_after.category; //category of the tweet received
+                            const newsGroupData = newsGroupDoc.data(); //newsgroup data
+                            const accountData = accountDoc.data(); //account data
 
-                        //First find new percieved category of the newsgroup
-                        const news_group_data = doc.data();
-                        if (news_group_data) {
-                            let map = doc.get("category_map") ? doc.get("category_map") : {};
-                            const old_dominant_category = news_group_data.category;
-                            let new_dominant_category = old_dominant_category;
-                            let max_category_count = 0;
+                            if (newsGroupData) {
 
-                            try {
-                                if (map[old_dominant_category] > 0) {
-                                    max_category_count = map[old_dominant_category];
+                                //Source_count_map
+                                let source_count_map = newsGroupDoc.get("source_count_map") ? newsGroupDoc.get("source_count_map") : {};
+
+                                //changeValue for membership count
+                                let changeValue = 0
+
+                                //If the field exists changeValue is 0 and field value increases by 1
+                                //if the field is missing changeValue is 1 and field values is set to 1
+                                if (accountID in source_count_map) {
+                                    source_count_map[accountID] = source_count_map[accountID] + 1;
                                 }
-                            }
-                            catch{ Error }
-
-                            for (let key in map) {
-                                let count = map[key];
-                                if (count && count > max_category_count && key !== "-") {
-                                    new_dominant_category = key;
-                                    max_category_count = count;
+                                else if (!(accountID in source_count_map)) {
+                                    source_count_map[accountID] = 1;
+                                    merge_source_count_map = true;
+                                    changeValue = 1;
                                 }
+
+                                // Get the photos(urls) from the tweet data
+                                const photos = data_after.photos;
+                                let photo_url = ""
+
+                                //Get photo url if present
+                                if (photos.length > 0) {
+                                    photo_url = photos[0];
+                                }
+
+                                if (accountData) {
+                                    //Send topic message to all users following the newsgroup
+                                    sendTopicMessage(photo_url, accountData.name, data_after.text, data_after.news_group_id);
+
+                                    //update newscount and newsgroupmembership count of the account
+                                    t.update(accountRef, { news_group_membership_count: accountData.news_group_membership_count + changeValue, news_count: accountData.news_count + 1 });
+                                }
+
+                                //update the category count for the newsgroup that this tweet belongs to
+                                updateCategoryMapForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map);
+
                             }
+                        }).then(result => {
+                            console.log("Transaction Success!");
+                        }).catch(err => {
+                            console.log('Update failure:', err);
+                        });
 
-
-                            //if the perceived category has a new value 
-                            if (old_dominant_category !== new_dominant_category) {
-                                //assign it to newsgroup 
-                                t.update(change.after.ref, { category: new_dominant_category });
-                            }
-
-                            //Then set the dominant category to tweets that do not belong to this category
-                            const tweetsRef = db.collection('tweets');
-
-                            tweetsRef.where('news_group_id', '==', change.after.id).get()
-                                .then(snapshot => {
-                                    if (snapshot.empty) {
-                                        console.log('No matching documents.');
-                                        return;
-                                    }
-
-                                    snapshot.forEach(tweet_doc => {
-                                        db.runTransaction(transaction => {
-                                            return transaction.get(tweet_doc.ref)
-                                                .then(document => {
-                                                    const data = document.data();
-                                                    if (data) {
-                                                        const old_category = data.perceived_category;
-                                                        if (old_category !== new_dominant_category) {
-                                                            transaction.update(tweet_doc.ref, { perceived_category: new_dominant_category });
-                                                        }
-                                                    }
-                                                }).catch(err => {
-                                                    console.log('Update failure:', err);
-                                                });
-                                        }).then(result => {
-                                            console.log('Transaction success!');
-                                        }).catch(err => {
-                                            console.log('Transaction failure:', err);
-                                        });
-                                    });
-                                })
-                                .catch(err => {
-                                    console.log('Error getting documents', err);
-                                });
-
-                        }
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-
-            }).then(result => {
-                console.log('Transaction success!');
-            }).catch(err => {
-                console.log('Transaction failure:', err);
-            });
+                }).then(result => {
+                    console.log('Transaction success!');
+                }).catch(err => {
+                    console.log('Transaction failure:', err);
+                });
+            }
+            else {
+                console.log("Chain Trigger Execution Blocked");
+                return;
+            }
         }
     });
+
+function updateCategoryMapForNewsGroup(newsGroupDoc: admin.firestore.DocumentData, categoryOfTweet: string, newsGroupRef: admin.firestore.DocumentReference, t: admin.firestore.Transaction, merge_source_count_map: boolean, source_count_map: Object) {
+    let map = newsGroupDoc.get("category_map") ? newsGroupDoc.get("category_map") : {};
+    if (categoryOfTweet in map) {
+        map[categoryOfTweet] = map[categoryOfTweet] + 1;
+
+        if (merge_source_count_map) {
+            t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
+        }
+        else {
+            t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map });
+        }
+    }
+    else if (!(categoryOfTweet in map)) {
+        map[categoryOfTweet] = 1;
+
+        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
+    }
+    else {
+        console.log("Problem during update of the newsgroup category maps");
+    }
+
+}
+
+function sendTopicMessage(url: string, title: string, body: string, id: string) {
+    let priority = "high" as const;
+
+    //set the message that will be sent to users following the topic
+    var message = {
+        topic: id,
+        notification: {
+            title: title,
+            body: body,
+            image: url
+        },
+        data: {
+            click_action: 'FLUTTER_NOTIFICATION_CLICK',
+            news_group_id: id,
+            title: title,
+            body: body
+        },
+        android: {
+            priority: priority,
+            notification: {
+                sound: 'default',
+                channelId: 'very_important',
+            },
+        },
+    };
+
+    //send the message to users
+    admin.messaging().send(message)
+        .then((response) => {
+            console.log('Successfully sent message:', response);
+        })
+        .catch((error) => {
+            console.log('Error sending message:', error);
+        });
+
+}
 
 export const increaseDislikeCount = functions.firestore
     .document('dislikes/{dislike_id}')
@@ -217,197 +349,30 @@ export const increaseReportCount = functions.firestore
         }
     });
 
-export const updateAccountInfoAfterNLP = functions.firestore
-    .document('tweets/{tweet_id}')
-    .onUpdate((change, context) => {
-        const data_after = change.after.data();
-        const data_before = change.before.data();
+export const increaseFirstNewsScore = functions.firestore
+    .document('news_groups/{newsgroup_id}')
+    .onCreate((snapshot, context) => {
+        const data = snapshot.data();
         const db = admin.firestore();
+        if (data) {
+            const group_leader = data.group_leader;
+            const accountRef = db.collection('accounts').doc(group_leader);
+            db.runTransaction(t => {
+                return t.get(accountRef)
+                    .then(doc => {
+                        const accountData = doc.data();
+                        if (accountData) {
+                            const newNumber = accountData.news_group_leadership_count + 1;
+                            t.update(accountRef, { news_group_leadership_count: newNumber });
+                        }
 
-        if (data_after && data_before) {
-            if (data_before.report_count !== data_after.report_count) {
-                // If the change is in reports do nothing
-                // This blocks a chain trigger that results after creating a report about a tweet
-            }
-            else if (data_before.perceived_category !== data_after.perceived_category && data_before.news_group_id !== "") {
-                //if the category is already set and percieved category changes
-                //decrement the old_category count
-                //increment or set the new_category count depending on existence
-                const account = data_after.username;
-                const accountRef = db.collection('accounts').doc(account);
-
-                db.runTransaction(t => {
-                    return t.get(accountRef)
-                        .then(doc => {
-                            const accountData = doc.data();
-                            const old_perceived_category = data_before.perceived_category;
-                            const new_perceived_category = data_after.perceived_category;
-                            if (accountData) {
-                                let map = doc.get("category_map") ? doc.get("category_map") : {};
-
-                                //update the category count for the account which is the owner of this tweet
-
-                                if (map[old_perceived_category] && map[new_perceived_category]) {
-                                    map[old_perceived_category] = map[old_perceived_category] - 1;
-                                    map[new_perceived_category] = map[new_perceived_category] + 1;
-
-                                    t.update(accountRef, { category_map: map });
-                                }
-                                else if (map[old_perceived_category] && !map[new_perceived_category]) {
-                                    map[old_perceived_category] = map[old_perceived_category] - 1;
-                                    map[new_perceived_category] = 1;
-
-                                    t.set(accountRef, { category_map: map }, { merge: true });
-                                } else {
-                                    console.log('There is a mistake resulting by previous updates (old_perceived_category), Check other triggers!');
-                                }
-                            }
-                        }).catch(err => {
-                            console.log('Update failure:', err);
-                        });
-                }).then(result => {
-                    console.log('Transaction success!');
-                }).catch(err => {
-                    console.log('Transaction failure:', err);
-                });
-
-            }
-            else if (data_before.news_group_id !== data_after.news_group_id) {
-                // if it is the first time tweet's news_group_id set (new tweet) 
-                // update the category count in the account document 
-                // send topic message to users following the news_group_id
-                // update the category count in the news group document
-
-                const account = data_after.username;
-                const news_group_id = data_after.news_group_id;
-                const accountRef = db.collection('accounts').doc(account);
-
-                db.runTransaction(t => {
-                    return t.get(accountRef)
-                        .then(doc => {
-                            const accountData = doc.data();
-                            const categoryOfTweet = data_after.category;
-                            const photos = data_after.photos;
-                            let photo_url = ""
-
-                            if (photos.length > 0) {
-                                photo_url = photos[0];
-                            }
-
-                            if (accountData) {
-                                let priority = "high" as const;
-
-                                //set the message that will be sent to users following the topic
-                                var message = {
-                                    topic: data_after.news_group_id,
-                                    notification: {
-                                        title: accountData.name,
-                                        body: data_after.text,
-                                        image: photo_url
-                                    },
-                                    data: {
-                                        click_action: 'FLUTTER_NOTIFICATION_CLICK',
-                                        news_group_id: data_after.news_group_id,
-                                        title: accountData.name,
-                                        body: data_after.text
-                                    },
-                                    android: {
-                                        priority: priority,
-                                        notification: {
-                                            sound: 'default',
-                                            channelId: 'very_important',
-                                        },
-                                    },
-                                };
-
-                                //send the message to users
-                                admin.messaging().send(message)
-                                    .then((response) => {
-                                        console.log('Successfully sent message:', response);
-                                    })
-                                    .catch((error) => {
-                                        console.log('Error sending message:', error);
-                                    });
-
-                                //update the category count for the account which is the owner of this tweet
-                                let map = doc.get("category_map") ? doc.get("category_map") : {};
-                                if (map[categoryOfTweet]) {
-                                    map[categoryOfTweet] = map[categoryOfTweet] + 1;
-
-                                    t.update(accountRef, { category_map: map, news_count: accountData.news_count + 1 });
-                                }
-                                else if (!map[categoryOfTweet]) {
-                                    map[categoryOfTweet] = 1;
-
-                                    t.set(accountRef, { category_map: map, news_count: accountData.news_count + 1 }, { merge: true });
-                                } else {
-                                    console.log('There is a mistake resulting by previous updates (old_perceived_category), Check other triggers!');
-                                }
-
-                            }
-                        }).catch(err => {
-                            console.log('Update failure:', err);
-                        });
-                }).then(result => {
-                    console.log('Transaction success!');
-                }).catch(err => {
-                    console.log('Transaction failure:', err);
-                });
-
-
-                const newsGroupRef = db.collection('news_groups').doc(news_group_id);
-                db.runTransaction(t => {
-                    return t.get(newsGroupRef)
-                        .then(doc => {
-                            const accountID = data_after.username;
-                            const categoryOfTweet = data_after.category;
-                            const newsGroupData = doc.data();
-                            if (newsGroupData) {
-
-                                //update the source_count_map
-                                let source_count_map = doc.get("source_count_map") ? doc.get("source_count_map") : {};
-                                let merge_source_count_map = false;
-
-                                if (source_count_map[accountID]) {
-                                    source_count_map[accountID] = source_count_map[accountID] + 1;
-                                }
-                                else if (!source_count_map[accountID]) {
-                                    source_count_map[accountID] = 1;
-                                    merge_source_count_map = true;
-                                }
-
-                                //update the category count for the newsgroup that this tweet belongs to
-                                let map = doc.get("category_map") ? doc.get("category_map") : {};
-
-                                if (map[categoryOfTweet]) {
-                                    map[categoryOfTweet] = map[categoryOfTweet] + 1;
-
-                                    if (merge_source_count_map) {
-                                        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
-                                    }
-                                    else {
-                                        t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map });
-                                    }
-                                }
-                                else if (!map[categoryOfTweet]) {
-                                    map[categoryOfTweet] = 1;
-
-                                    t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
-                                }
-
-                            }
-                        }).catch(err => {
-                            console.log('Update failure:', err);
-                        });
-                }).then(result => {
-                    console.log('Transaction success!');
-                }).catch(err => {
-                    console.log('Transaction failure:', err);
-                });
-            }
-            else {
-                console.log("Chain Trigger Execution Blocked");
-                return;
-            }
+                    }).catch(err => {
+                        console.log('Update failure:', err);
+                    });
+            }).then(result => {
+                console.log('Transaction success!');
+            }).catch(err => {
+                console.log('Transaction failure:', err);
+            });
         }
     });

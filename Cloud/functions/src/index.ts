@@ -91,6 +91,8 @@ export const updateNewsGroupCategory = functions.firestore
                                     t.update(change.after.ref, { category: new_dominant_category });
                                 }
 
+                                //Update the tweets perceived category
+
                             }
                         }).catch(err => {
                             console.log('Update failure:', err);
@@ -147,7 +149,6 @@ export const updateAccountInfoAfterNLP = functions.firestore
                     photo_url = photos[0];
                 }
 
-
                 //Send topic message to all users following the newsgroup
                 sendTopicMessage(photo_url, account, data_after.text, data_after.news_group_id);
 
@@ -176,13 +177,11 @@ export const updateAccountInfoAfterNLP = functions.firestore
                                 changeValue = 1;
                             }
 
-
                             //update newscount and newsgroupmembership count of the account
                             t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1 });
 
                             //update the category count for the newsgroup that this tweet belongs to
                             updateCategoryMapForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map);
-
 
                         }).then(result => {
                             console.log("Transaction Success!");

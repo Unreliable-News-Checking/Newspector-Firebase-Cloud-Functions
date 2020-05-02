@@ -14,6 +14,7 @@ export const updateNewsGroupCategory = functions.firestore
         if (data_before && data_after) {
 
             if (data_before.category !== data_after.category) {
+
                 //if the changed field is category do nothing
                 //this block a chain trigger resulting from updating the category after a new tweet changes the dominant category type
                 //the code for this operation given below
@@ -22,24 +23,22 @@ export const updateNewsGroupCategory = functions.firestore
             }
             else if (data_after.status !== data_before.status) {
 
+                //current category of newsgroup
                 let perceived_category = data_after.category;
+
+                //current category map of newsgroup
                 let map = data_after.source_count_map ? data_after.source_count_map : {};
 
+                //For each account in newsgroup update its category map
                 for (let key in map) {
                     let accountRef = db.collection('accounts').doc(key);
                     let change_rate = map[key];
                     db.runTransaction(async t => {
                         return t.get(accountRef).then(doc => {
 
-                            let account_map = doc.get("category_map") ? doc.get("category_map") : {};
-                            if (perceived_category in account_map) {
-                                account_map[perceived_category] += change_rate;
-                                t.update(accountRef, { category_map: account_map });
-                            }
-                            else {
-                                account_map[perceived_category] = change_rate;
-                                t.set(accountRef, { category_map: account_map }, { merge: true });
-                            }
+                            //update category map of account when the newsgroup is closed
+                            updateCategoryMapOfAccount(doc, accountRef, perceived_category, change_rate, t);
+
                         }).catch(err => {
                             console.log('Update failure:', err);
                         });
@@ -62,38 +61,12 @@ export const updateNewsGroupCategory = functions.firestore
                     return t.get(change.after.ref)
                         .then(doc => {
 
-                            //First find new percieved category of the newsgroup
-                            const news_group_data = doc.data();
-                            if (news_group_data) {
-                                let map = doc.get("category_map") ? doc.get("category_map") : {};
-                                const old_dominant_category = news_group_data.category;
-                                let new_dominant_category = old_dominant_category;
-                                let max_category_count = 0;
+                            //Find and Update Category of Newsgroup
+                            const new_dominant_category = findAndUpdateCategoryOfNewsGroup(doc, change.after.ref, t);
 
-                                try {
-                                    if (old_dominant_category in map) {
-                                        max_category_count = map[old_dominant_category];
-                                    }
-                                }
-                                catch{ Error }
+                            //Update the tweets perceived category
+                            updatePerceivedCategoryOfTweets(db, change.after.id, new_dominant_category);
 
-                                for (let key in map) {
-                                    let count = map[key];
-                                    if (count && count > max_category_count && key !== "-") {
-                                        new_dominant_category = key;
-                                        max_category_count = count;
-                                    }
-                                }
-
-                                //if the perceived category has a new value 
-                                if (old_dominant_category !== new_dominant_category) {
-                                    //assign it to newsgroup 
-                                    t.update(change.after.ref, { category: new_dominant_category });
-                                }
-
-                                //Update the tweets perceived category
-
-                            }
                         }).catch(err => {
                             console.log('Update failure:', err);
                         });
@@ -202,7 +175,86 @@ export const updateAccountInfoAfterNLP = functions.firestore
         }
     });
 
-function updateCategoryMapForNewsGroup(newsGroupDoc: admin.firestore.DocumentData, categoryOfTweet: string, newsGroupRef: admin.firestore.DocumentReference, t: admin.firestore.Transaction, merge_source_count_map: boolean, source_count_map: Object) {
+function updatePerceivedCategoryOfTweets(db: FirebaseFirestore.Firestore, news_group_id: string, new_dominant_category: string) {
+    const tweetsRef = db.collection('tweets');
+
+    tweetsRef.where('news_group_id', '==', news_group_id).get()
+        .then(snapshot => {
+            if (snapshot.empty) {
+                console.log('No matching documents.');
+                return;
+            }
+
+            snapshot.forEach(tweet_doc => {
+                db.runTransaction(transaction => {
+                    return transaction.get(tweet_doc.ref)
+                        .then(document => {
+                            const data = document.data();
+                            if (data) {
+                                const old_category = data.perceived_category;
+                                if (old_category !== new_dominant_category) {
+                                    transaction.update(tweet_doc.ref, { perceived_category: new_dominant_category });
+                                }
+                            }
+                        }).catch(err => {
+                            console.log('Update failure:', err);
+                        });
+                }).then(result => {
+                    console.log('Transaction success!');
+                }).catch(err => {
+                    console.log('Transaction failure:', err);
+                });
+            });
+        })
+        .catch(err => {
+            console.log('Error getting documents', err);
+        });
+}
+
+function updateCategoryMapOfAccount(doc: FirebaseFirestore.DocumentData, accountRef: FirebaseFirestore.DocumentReference, perceived_category: string, change_rate: number, t: FirebaseFirestore.Transaction) {
+    let account_map = doc.get("category_map") ? doc.get("category_map") : {};
+    if (perceived_category in account_map) {
+        account_map[perceived_category] += change_rate;
+        t.update(accountRef, { category_map: account_map });
+    }
+    else {
+        account_map[perceived_category] = change_rate;
+        t.set(accountRef, { category_map: account_map }, { merge: true });
+    }
+}
+
+function findAndUpdateCategoryOfNewsGroup(doc: FirebaseFirestore.DocumentData, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction) {
+    const news_group_data = doc.data();
+    if (news_group_data) {
+        let map = doc.get("category_map") ? doc.get("category_map") : {};
+        const old_dominant_category = news_group_data.category;
+        let new_dominant_category = old_dominant_category;
+        let max_category_count = 0;
+
+
+        if (old_dominant_category in map) {
+            max_category_count = map[old_dominant_category];
+        }
+
+        for (let key in map) {
+            let count = map[key];
+            if (count && count > max_category_count && key !== "-") {
+                new_dominant_category = key;
+                max_category_count = count;
+            }
+        }
+
+        //if the perceived category has a new value 
+        if (old_dominant_category !== new_dominant_category) {
+            //assign it to newsgroup 
+            t.update(newsGroupRef, { category: new_dominant_category });
+        }
+        return new_dominant_category;
+    }
+    return null;
+}
+
+function updateCategoryMapForNewsGroup(newsGroupDoc: FirebaseFirestore.DocumentData, categoryOfTweet: string, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction, merge_source_count_map: boolean, source_count_map: Object) {
     let map = newsGroupDoc.get("category_map") ? newsGroupDoc.get("category_map") : {};
     if (categoryOfTweet in map) {
         map[categoryOfTweet] = map[categoryOfTweet] + 1;

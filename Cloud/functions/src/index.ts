@@ -4,6 +4,33 @@ import * as admin from 'firebase-admin';
 "use strict";
 admin.initializeApp();
 
+export const scheduledFunction = functions.pubsub.schedule('every 48 hours').onRun((context) => {
+    const db = admin.firestore();
+
+    const newsGroupCollectionRef = db.collection('tweets');
+
+    const date: Date = new Date();
+
+    newsGroupCollectionRef.where('status', '==', "open").where('date', '<=', date.getTime() - 49 * 60 * 60 * 1000).get()
+        .then(snapshot => {
+            if (snapshot.empty) {
+                console.log('No matching documents.');
+                return;
+            }
+
+            snapshot.forEach(newsGroupDoc => {
+
+                newsGroupDoc.ref.update({ status: "closed" });
+
+            });
+        })
+        .catch(err => {
+            console.log('Error getting documents', err);
+        });
+
+});
+
+
 export const updateNewsGroupCategory = functions.firestore
     .document('news_groups/{newsgroup_id}')
     .onUpdate((change, context) => {

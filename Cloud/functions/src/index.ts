@@ -4,14 +4,16 @@ import * as admin from 'firebase-admin';
 "use strict";
 admin.initializeApp();
 
-export const scheduledFunction = functions.pubsub.schedule('every 48 hours').onRun((context) => {
+export const scheduledFunction = functions.pubsub.schedule('every 24 hours').onRun((context) => {
     const db = admin.firestore();
 
     const newsGroupCollectionRef = db.collection('tweets');
 
     const date: Date = new Date();
 
-    newsGroupCollectionRef.where('status', '==', "open").where('date', '<=', date.getTime() - 49 * 60 * 60 * 1000).get()
+    const threshold = date.getTime() - 49 * 60 * 60 * 1000;
+
+    newsGroupCollectionRef.where('is_active', '==', true).where('date', '<=', threshold).get()
         .then(snapshot => {
             if (snapshot.empty) {
                 console.log('No matching documents.');
@@ -20,9 +22,12 @@ export const scheduledFunction = functions.pubsub.schedule('every 48 hours').onR
 
             snapshot.forEach(newsGroupDoc => {
 
-                newsGroupDoc.ref.update({ status: "closed" });
+                newsGroupDoc.ref.update({ is_active: false }).catch(err => {
+                    console.log('Error updating newsgroup status', err);
+                });;
 
             });
+
         })
         .catch(err => {
             console.log('Error getting documents', err);
@@ -135,9 +140,13 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 // update the category count in the news group document
 
                 const account = data_after.username;
-                const news_group_id = data_after.news_group_id;
                 const accountRef = db.collection('accounts').doc(account);
+
+                const news_group_id = data_after.news_group_id;
                 const newsGroupRef = db.collection('news_groups').doc(news_group_id);
+
+                //if this value is greater than the last update date of newsgroup it will be assigned as teh new update date
+                const tweet_date = data_after.date;
                 let merge_source_count_map = false;
 
                 // Get the photos(urls) from the tweet data
@@ -159,6 +168,11 @@ export const updateAccountInfoAfterNLP = functions.firestore
                             const accountDoc = docs[1]; //account document for tweet
                             const accountID = data_after.username; //id of account, used for map updates
                             const categoryOfTweet = data_after.category; //category of the tweet received
+                            let last_update_date = newsGroupDoc.get("updated_at"); // the date for the last update of newsgroup
+
+                            if (tweet_date > last_update_date) {
+                                last_update_date = tweet_date;
+                            }
 
                             //Source_count_map
                             let source_count_map = newsGroupDoc.get("source_count_map") ? newsGroupDoc.get("source_count_map") : {};
@@ -181,7 +195,7 @@ export const updateAccountInfoAfterNLP = functions.firestore
                             t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1 });
 
                             //update the category count for the newsgroup that this tweet belongs to
-                            updateCategoryMapForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map);
+                            updateCategoryMapAndDateForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map, last_update_date);
 
                         }).then(result => {
                             console.log("Transaction Success!");
@@ -258,7 +272,6 @@ function findAndUpdateCategoryOfNewsGroup(doc: FirebaseFirestore.DocumentData, n
         let new_dominant_category = old_dominant_category;
         let max_category_count = 0;
 
-
         if (old_dominant_category in map) {
             max_category_count = map[old_dominant_category];
         }
@@ -281,22 +294,22 @@ function findAndUpdateCategoryOfNewsGroup(doc: FirebaseFirestore.DocumentData, n
     return null;
 }
 
-function updateCategoryMapForNewsGroup(newsGroupDoc: FirebaseFirestore.DocumentData, categoryOfTweet: string, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction, merge_source_count_map: boolean, source_count_map: Object) {
+function updateCategoryMapAndDateForNewsGroup(newsGroupDoc: FirebaseFirestore.DocumentData, categoryOfTweet: string, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction, merge_source_count_map: boolean, source_count_map: Object, updated_at: number) {
     let map = newsGroupDoc.get("category_map") ? newsGroupDoc.get("category_map") : {};
     if (categoryOfTweet in map) {
         map[categoryOfTweet] = map[categoryOfTweet] + 1;
 
         if (merge_source_count_map) {
-            t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
+            t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, updated_at: updated_at }, { merge: true });
         }
         else {
-            t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map });
+            t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map, updated_at: updated_at });
         }
     }
     else if (!(categoryOfTweet in map)) {
         map[categoryOfTweet] = 1;
 
-        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map }, { merge: true });
+        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, updated_at: updated_at }, { merge: true });
     }
     else {
         console.log("Problem during update of the newsgroup category maps");

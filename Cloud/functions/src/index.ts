@@ -4,10 +4,36 @@ import * as admin from 'firebase-admin';
 "use strict";
 admin.initializeApp();
 
-export const scheduledFunction = functions.pubsub.schedule('every 24 hours').onRun((context) => {
-    const db = admin.firestore();
 
-    const newsGroupCollectionRef = db.collection('tweets');
+const isEventProcessed = async (eventId: string, collection: string) => {
+    let isProcessed = false;
+    admin.database().ref('/' + collection + '/e52d6f2a-9b98-4678-8ced-630a7936ce8c-0').once("value").then(function (snapshot) {
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+            console.log("exists!", data);
+            isProcessed = true;
+        }
+    }).then(result => {
+        console.log('Successfuly getting isEventProcessed:');
+    }).catch(err => {
+        console.log('Error getting isEventProcessed:', err);
+    });
+    return isProcessed;
+}
+
+const markEventProcessed = async (eventId: string, collection: string, date: string) => {
+    admin.database().ref(collection + '/' + eventId).set({
+        date: date,
+    }).then(result => {
+        console.log('Successfuly marking event:');
+    }).catch(err => {
+        console.log('Error marking event:', err);
+    });
+}
+
+export const scheduledFunction = functions.pubsub.schedule('every 24 hours').onRun((context) => {
+
+    const newsGroupCollectionRef = admin.firestore().collection('tweets');
 
     const date: Date = new Date();
 
@@ -35,13 +61,20 @@ export const scheduledFunction = functions.pubsub.schedule('every 24 hours').onR
 
 });
 
-
 export const updateNewsGroupCategory = functions.firestore
     .document('news_groups/{newsgroup_id}')
-    .onUpdate((change, context) => {
+    .onUpdate(async (change, context) => {
+        const eventId = context.eventId;
+
+        const isProcessed = await isEventProcessed(eventId, "updateNewsGroupCategoryEvents");
+        if (isProcessed) {
+            return null;
+        }
+
+
         const data_before = change.before.data();
         const data_after = change.after.data();
-        const db = admin.firestore();
+
 
         if (data_before && data_after) {
 
@@ -50,8 +83,9 @@ export const updateNewsGroupCategory = functions.firestore
                 //if the changed field is category do nothing
                 //this block a chain trigger resulting from updating the category after a new tweet changes the dominant category type
                 //the code for this operation given below
-                console.log("Category Changes")
-                return;
+                await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", context.timestamp);
+                console.log("Category Changes");
+                return null;
             }
             else if (data_after.status !== data_before.status) {
 
@@ -63,9 +97,9 @@ export const updateNewsGroupCategory = functions.firestore
 
                 //For each account in newsgroup update its category map
                 for (let key in map) {
-                    let accountRef = db.collection('accounts').doc(key);
+                    let accountRef = admin.firestore().collection('accounts').doc(key);
                     let change_rate = map[key];
-                    db.runTransaction(async t => {
+                    admin.firestore().runTransaction(async t => {
                         return t.get(accountRef).then(doc => {
 
                             //update category map of account when the newsgroup is closed
@@ -81,15 +115,16 @@ export const updateNewsGroupCategory = functions.firestore
                         console.log('Transaction failure:', err);
                     });
                 }
+                await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", context.timestamp);
                 console.log("Status Changes");
-                return;
+                return null;
             }
             else {
                 //when a new tweet is assigned a news_group_id the category counts get updated
                 //this section of the trigger calculates the new dominant category
                 //and updates the newsgroup document
 
-                db.runTransaction(async t => {
+                admin.firestore().runTransaction(async t => {
                     return t.get(change.after.ref)
                         .then(doc => {
 
@@ -97,7 +132,7 @@ export const updateNewsGroupCategory = functions.firestore
                             const new_dominant_category = findAndUpdateCategoryOfNewsGroup(doc, change.after.ref, t);
 
                             //Update the tweets perceived category
-                            updatePerceivedCategoryOfTweets(db, change.after.id, new_dominant_category);
+                            updatePerceivedCategoryOfTweets(change.after.id, new_dominant_category);
 
                         }).catch(err => {
                             console.log('Update failure:', err);
@@ -109,29 +144,43 @@ export const updateNewsGroupCategory = functions.firestore
                     console.log('Transaction failure:', err);
                 });
 
+                await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", context.timestamp);
                 console.log("Perceived category assignment");
-                return;
+                return null;
             }
         }
+        await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", context.timestamp);
+        console.log("No data");
+        return null;
     });
 
 
 export const updateAccountInfoAfterNLP = functions.firestore
     .document('tweets/{tweet_id}')
     .onUpdate(async (change, context) => {
+        const eventId = context.eventId;
+
+        const isProcessed = await isEventProcessed(eventId, "updateAccountInfoAfterNLPEvents");
+        if (isProcessed === true) {
+            return null;
+        }
+
         const data_after = change.after.data();
         const data_before = change.before.data();
-        const db = admin.firestore();
 
         if (data_after && data_before) {
             if (data_before.report_count !== data_after.report_count) {
                 // If the change is in reports do nothing
                 // This blocks a chain trigger that results after creating a report about a tweet
-                return;
+                await markEventProcessed(eventId, "updateAccountInfoAfterNLPEvents", context.timestamp);
+                console.log("Trigger Block");
+                return null;
             }
             else if (data_before.perceived_category !== data_after.perceived_category && data_before.news_group_id !== "") {
                 //do nothing
-                return;
+                await markEventProcessed(eventId, "updateAccountInfoAfterNLPEvents", context.timestamp);
+                console.log("Trigger Block");
+                return null;
             }
             else if (data_before.news_group_id !== data_after.news_group_id) {
                 // if it is the first time tweet's news_group_id set (new tweet) 
@@ -140,10 +189,10 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 // update the category count in the news group document
 
                 const account = data_after.username;
-                const accountRef = db.collection('accounts').doc(account);
+                const accountRef = admin.firestore().collection('accounts').doc(account);
 
                 const news_group_id = data_after.news_group_id;
-                const newsGroupRef = db.collection('news_groups').doc(news_group_id);
+                const newsGroupRef = admin.firestore().collection('news_groups').doc(news_group_id);
 
                 //if this value is greater than the last update date of newsgroup it will be assigned as teh new update date
                 const tweet_date = data_after.date;
@@ -159,9 +208,9 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 }
 
                 //Send topic message to all users following the newsgroup
-                sendTopicMessage(photo_url, account, data_after.text, data_after.news_group_id);
+                await sendTopicMessage(photo_url, account, data_after.text, data_after.news_group_id);
 
-                db.runTransaction(async t => {
+                await admin.firestore().runTransaction(async t => {
                     return t.getAll(newsGroupRef, accountRef)
                         .then(docs => {
                             const newsGroupDoc = docs[0]; //newsgroup document for tweet
@@ -202,32 +251,37 @@ export const updateAccountInfoAfterNLP = functions.firestore
                         }).catch(err => {
                             console.log('Update failure:', err);
                         });
-
                 }).then(result => {
                     console.log('Transaction success!');
                 }).catch(err => {
                     console.log('Transaction failure:', err);
                 });
+
+                await markEventProcessed(eventId, "updateAccountInfoAfterNLPEvents", context.timestamp);
+                console.log("Finishing update block");
+                return null;
             }
             else {
+                await markEventProcessed(eventId, "updateAccountInfoAfterNLPEvents", context.timestamp);
                 console.log("Chain Trigger Execution Blocked");
-                return;
+                return null;
             }
         }
+        return null;
     });
 
-function updatePerceivedCategoryOfTweets(db: FirebaseFirestore.Firestore, news_group_id: string, new_dominant_category: string) {
-    const tweetsRef = db.collection('tweets');
+function updatePerceivedCategoryOfTweets(news_group_id: string, new_dominant_category: string) {
+    const tweetsRef = admin.firestore().collection('tweets');
 
     tweetsRef.where('news_group_id', '==', news_group_id).get()
         .then(snapshot => {
             if (snapshot.empty) {
                 console.log('No matching documents.');
-                return;
+                return null;
             }
 
             snapshot.forEach(tweet_doc => {
-                db.runTransaction(transaction => {
+                admin.firestore().runTransaction(transaction => {
                     return transaction.get(tweet_doc.ref)
                         .then(document => {
                             const data = document.data();
@@ -246,10 +300,12 @@ function updatePerceivedCategoryOfTweets(db: FirebaseFirestore.Firestore, news_g
                     console.log('Transaction failure:', err);
                 });
             });
+            return;
         })
         .catch(err => {
             console.log('Error getting documents', err);
         });
+    return null;
 }
 
 function updateCategoryMapOfAccount(doc: FirebaseFirestore.DocumentData, accountRef: FirebaseFirestore.DocumentReference, perceived_category: string, change_rate: number, t: FirebaseFirestore.Transaction) {
@@ -272,7 +328,7 @@ function findAndUpdateCategoryOfNewsGroup(doc: FirebaseFirestore.DocumentData, n
         let new_dominant_category = old_dominant_category;
         let max_category_count = 0;
 
-        if (old_dominant_category in map) {
+        if (old_dominant_category in map && old_dominant_category !== "-") {
             max_category_count = map[old_dominant_category];
         }
 
@@ -314,10 +370,9 @@ function updateCategoryMapAndDateForNewsGroup(newsGroupDoc: FirebaseFirestore.Do
     else {
         console.log("Problem during update of the newsgroup category maps");
     }
-
 }
 
-function sendTopicMessage(url: string, title: string, body: string, id: string) {
+async function sendTopicMessage(url: string, title: string, body: string, id: string) {
     let priority = "high" as const;
 
     //set the message that will be sent to users following the topic
@@ -354,97 +409,23 @@ function sendTopicMessage(url: string, title: string, body: string, id: string) 
 
 }
 
-export const increaseDislikeCount = functions.firestore
-    .document('dislikes/{dislike_id}')
-    .onCreate((snapshot, context) => {
-        const data = snapshot.data();
-        const db = admin.firestore();
-        if (data) {
-            const dislikedAccount = data.account;
-            const accountRef = db.collection('accounts').doc(dislikedAccount);
-            db.runTransaction(t => {
-                return t.get(accountRef)
-                    .then(doc => {
-                        const accountData = doc.data();
-                        if (accountData) {
-                            const newNumber = accountData.dislike_count + 1;
-                            t.update(accountRef, { dislike_count: newNumber });
-                        }
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-            }).then(result => {
-                console.log('Transaction success!');
-            }).catch(err => {
-                console.log('Transaction failure:', err);
-            });
-        }
-    });
-
-export const increaseLikeCount = functions.firestore
-    .document('likes/{like_id}')
-    .onCreate((snapshot, context) => {
-        const data = snapshot.data();
-        const db = admin.firestore();
-        if (data) {
-            const likedAccount = data.account;
-            const accountRef = db.collection('accounts').doc(likedAccount);
-            db.runTransaction(t => {
-                return t.get(accountRef)
-                    .then(doc => {
-                        const accountData = doc.data();
-                        if (accountData) {
-                            const newNumber = accountData.like_count + 1;
-                            t.update(accountRef, { like_count: newNumber });
-                        }
-
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-            }).then(result => {
-                console.log('Transaction success!');
-            }).catch(err => {
-                console.log('Transaction failure:', err);
-            });
-        }
-    });
-
-export const increaseReportCount = functions.firestore
-    .document('reports/{report_id}')
-    .onCreate((snapshot, context) => {
-        const data = snapshot.data();
-        const db = admin.firestore();
-        if (data) {
-            const tweet_doc_id = data.tweet_doc_id;
-            const tweetRef = db.collection('tweets').doc(tweet_doc_id);
-            db.runTransaction(t => {
-                return t.get(tweetRef)
-                    .then(doc => {
-                        const tweetData = doc.data();
-                        if (tweetData) {
-                            const newNumber = tweetData.report_count + 1;
-                            t.update(tweetRef, { report_count: newNumber });
-                        }
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-            }).then(result => {
-                console.log('Transaction success!');
-            }).catch(err => {
-                console.log('Transaction failure:', err);
-            });
-        }
-    });
 
 export const increaseFirstNewsScore = functions.firestore
     .document('news_groups/{newsgroup_id}')
-    .onCreate((snapshot, context) => {
+    .onCreate(async (snapshot, context) => {
+        const eventId = context.eventId;
+
+        const isProcessed = await isEventProcessed(eventId, "increaseFirstNewsScoreEvents");
+        if (isProcessed) {
+            return null;
+        }
+
         const data = snapshot.data();
-        const db = admin.firestore();
+
         if (data) {
             const group_leader = data.group_leader;
-            const accountRef = db.collection('accounts').doc(group_leader);
-            db.runTransaction(t => {
+            const accountRef = admin.firestore().collection('accounts').doc(group_leader);
+            await admin.firestore().runTransaction(t => {
                 return t.get(accountRef)
                     .then(doc => {
                         const accountData = doc.data();
@@ -461,5 +442,11 @@ export const increaseFirstNewsScore = functions.firestore
             }).catch(err => {
                 console.log('Transaction failure:', err);
             });
+            await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", context.timestamp);
+            console.log("Newsgroup Exists");
+            return null;
         }
+        await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", context.timestamp);
+        console.log("News group does not exist");
+        return null;
     });

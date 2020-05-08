@@ -47,7 +47,7 @@ const markEventProcessed = async (eventId: string, collection: string, date: num
     });
 }
 
-export const scheduledFunction = functions.pubsub.schedule('every 2 minutes').onRun(async (context) => {
+export const scheduledFunction = functions.pubsub.schedule('every 1 hours').onRun(async (context) => {
 
     const newsGroupCollectionRef = admin.firestore().collection('news_groups');
 

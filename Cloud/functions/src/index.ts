@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 
+
 "use strict";
 admin.initializeApp();
 
@@ -52,24 +53,22 @@ export const scheduledFunction = functions.pubsub.schedule('every 5 minutes').on
 
     const date: Date = new Date();
 
-    const threshold = date.getTime() - 1 * 60 * 60 * 1000;
+    const hours: number = 1
 
-    console.log("Threshold: " + threshold);
+    const threshold = date.getTime() - hours * 60 * 60 * 1000;
+
+    console.log("Threshold in milli seconds: " + threshold);
 
     const all_accounts: Map<string, Map<string, number>> = new Map();
 
     await newsGroupCollectionRef.where('is_active', '==', true).where('created_at', '<=', threshold).get()
-        .then(snapshot => {
+        .then(async snapshot => {
             if (snapshot.empty) {
                 console.log('No matching documents.');
                 return;
             }
 
             snapshot.forEach(async newsGroupDoc => {
-
-                await newsGroupDoc.ref.update({ is_active: false }).catch(err => {
-                    console.log('Error updating newsgroup status', err);
-                });;
 
                 //current category of newsgroup
                 const perceived_category = newsGroupDoc.get("category");
@@ -83,8 +82,7 @@ export const scheduledFunction = functions.pubsub.schedule('every 5 minutes').on
                     if (key in all_accounts) {
                         account = all_accounts.get(key)!;
                         if (perceived_category in account) {
-                            const count = account.get(perceived_category);
-                            account.set(perceived_category, count + map[key]);
+                            account.set(perceived_category, account.get(perceived_category) + map[key]);
                         }
                         else {
                             account.set(perceived_category, map[key]);
@@ -95,35 +93,56 @@ export const scheduledFunction = functions.pubsub.schedule('every 5 minutes').on
                     }
                     all_accounts.set(key, account);
                 }
+
+                await newsGroupDoc.ref.update({ is_active: false }).catch(err => {
+                    console.log('Error updating newsgroup status', err);
+                });;
             });
 
+            //For each account in newsgroup update its category map
+            for (let account in all_accounts) {
+                const accountRef = admin.firestore().collection('accounts').doc(account);
+                let account_map: Map<string, number> = all_accounts.get(account)!;
+
+                await admin.firestore().runTransaction(async t => {
+                    return t.get(accountRef).then(async doc => {
+
+                        const map = doc.get("category_map") ? doc.get("category_map") : {};
+                        let merge = false;
+                        for (let category in account_map) {
+
+                            //if category exist in account add new values to the existing ones
+                            //else we should merge a new field to the category map
+                            if (category in map) {
+                                account_map.set(category, account_map.get(category) + map.get(category));
+                            }
+                            else {
+                                merge = true;
+                            }
+                        }
+
+                        //update category map of account 
+                        if (merge === true) {
+                            t.set(accountRef, { category_map: account_map }, { merge: true });
+                        }
+                        else {
+                            t.update(accountRef, { category_map: account_map });
+                        }
+                    }).catch(err => {
+                        console.log('Update failure:', err);
+                    });
+
+                }).catch(err => {
+                    console.log('Transaction failure:', err);
+                });
+                await delay(2000);
+            }
         })
         .catch(err => {
             console.log('Error getting documents', err);
         });
-
-
-    //For each account in newsgroup update its category map
-    for (let key in all_accounts) {
-        const accountRef = admin.firestore().collection('accounts').doc(key);
-        const account_map: Map<string, number> = all_accounts.get(key)!;
-
-        // await admin.firestore().runTransaction(async t => {
-        //     return t.get(accountRef).then(doc => {
-
-        //         //update category map of account when the newsgroup is closed
-        //         updateCategoryMapOfAccount(doc, accountRef, category, account_map.get(category)!, t);
-
-        //     }).catch(err => {
-        //         console.log('Update failure:', err);
-        //     });
-
-        // }).catch(err => {
-        //     console.log('Transaction failure:', err);
-        // });
-
-    }
-
+    console.log('Terminating schedule function');
+    return null;
 });
 
 export const updateNewsGroupCategory = functions.firestore
@@ -338,18 +357,6 @@ function updatePerceivedCategoryOfTweets(news_group_id: string, new_dominant_cat
             console.log('Error getting documents', err);
         });
     return null;
-}
-
-function updateCategoryMapOfAccount(doc: FirebaseFirestore.DocumentData, accountRef: FirebaseFirestore.DocumentReference, perceived_category: string, change_rate: number, t: FirebaseFirestore.Transaction) {
-    let account_map = doc.get("category_map") ? doc.get("category_map") : {};
-    if (perceived_category in account_map) {
-        account_map[perceived_category] += change_rate;
-        t.update(accountRef, { category_map: account_map });
-    }
-    else {
-        account_map[perceived_category] = change_rate;
-        t.set(accountRef, { category_map: account_map }, { merge: true });
-    }
 }
 
 function findAndUpdateCategoryOfNewsGroup(doc: FirebaseFirestore.DocumentData, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction) {

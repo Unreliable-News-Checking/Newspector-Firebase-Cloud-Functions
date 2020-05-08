@@ -5,9 +5,9 @@ import * as admin from 'firebase-admin';
 "use strict";
 admin.initializeApp();
 
-function delay(ms: number) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+// function delay(ms: number) {
+//     return new Promise(resolve => setTimeout(resolve, ms));
+// }
 
 const isEventProcessed = async (eventId: string, collection: string) => {
     let isProcessed = false;
@@ -47,7 +47,7 @@ const markEventProcessed = async (eventId: string, collection: string, date: num
     });
 }
 
-export const scheduledFunction = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {
+export const scheduledFunction = functions.pubsub.schedule('every 2 minutes').onRun(async (context) => {
 
     const newsGroupCollectionRef = admin.firestore().collection('news_groups');
 
@@ -69,7 +69,7 @@ export const scheduledFunction = functions.pubsub.schedule('every 5 minutes').on
             }
 
             snapshot.forEach(async newsGroupDoc => {
-
+                console.log('Traversing Snapshots...');
                 //current category of newsgroup
                 const perceived_category = newsGroupDoc.get("category");
 
@@ -79,9 +79,9 @@ export const scheduledFunction = functions.pubsub.schedule('every 5 minutes').on
                 // Form Map of Maps which have all category counts for all accounts
                 for (let key in map) {
                     let account: Map<string, number> = new Map();
-                    if (key in all_accounts) {
+                    if (all_accounts.has(key)) {
                         account = all_accounts.get(key)!;
-                        if (perceived_category in account) {
+                        if (account.has(perceived_category)) {
                             account.set(perceived_category, account.get(perceived_category) + map[key]);
                         }
                         else {
@@ -98,51 +98,53 @@ export const scheduledFunction = functions.pubsub.schedule('every 5 minutes').on
                     console.log('Error updating newsgroup status', err);
                 });;
             });
-
-            //For each account in newsgroup update its category map
-            for (let account in all_accounts) {
-                const accountRef = admin.firestore().collection('accounts').doc(account);
-                let account_map: Map<string, number> = all_accounts.get(account)!;
-
-                await admin.firestore().runTransaction(async t => {
-                    return t.get(accountRef).then(async doc => {
-
-                        const map = doc.get("category_map") ? doc.get("category_map") : {};
-                        let merge = false;
-                        for (let category in account_map) {
-
-                            //if category exist in account add new values to the existing ones
-                            //else we should merge a new field to the category map
-                            if (category in map) {
-                                account_map.set(category, account_map.get(category) + map.get(category));
-                            }
-                            else {
-                                merge = true;
-                            }
-                        }
-
-                        //update category map of account 
-                        if (merge === true) {
-                            t.set(accountRef, { category_map: account_map }, { merge: true });
-                        }
-                        else {
-                            t.update(accountRef, { category_map: account_map });
-                        }
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-
-                }).catch(err => {
-                    console.log('Transaction failure:', err);
-                });
-                await delay(2000);
-            }
         })
         .catch(err => {
             console.log('Error getting documents', err);
         });
-    console.log('Terminating schedule function');
-    return null;
+
+    let batch = admin.firestore().batch();
+
+    for (let [key, value] of all_accounts) {
+        console.log("Account: " + key);
+        const accountRef = admin.firestore().collection('accounts').doc(key);
+        const doc = await accountRef.get();
+        let account_map: Map<string, number> = value;
+
+        //t.get(accountRef).then(doc => {
+        console.log("Transaction for: " + doc.get("username"));
+        let map = doc.get("category_map") ? doc.get("category_map") : {};
+        let merge: boolean = false;
+
+        for (let [category, count] of account_map) {
+            console.log("Category: " + category + " in account: " + key);
+
+            //if category exist in account add new values to the existing ones
+            //else we should merge a new field to the category map
+            if (category in map) {
+                map[category] += count;
+            }
+            else {
+                map[category] = count;
+                merge = true;
+            }
+        }
+
+        //update category map of account 
+        if (merge === true) {
+            console.log("Merge true");
+            batch.set(accountRef, { category_map: map }, { merge: true });
+        }
+        else {
+            console.log("Merge false");
+            batch.update(accountRef, { category_map: map });
+        }
+
+    }
+
+    return batch.commit().then(function () {
+        console.log('Successful batch')
+    });;
 });
 
 export const updateNewsGroupCategory = functions.firestore

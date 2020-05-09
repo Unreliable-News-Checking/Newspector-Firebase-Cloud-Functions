@@ -47,13 +47,13 @@ const markEventProcessed = async (eventId: string, collection: string, date: num
     });
 }
 
-export const scheduledFunction = functions.pubsub.schedule('every 1 hours').onRun(async (context) => {
+export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRun(async (context) => {
 
     const newsGroupCollectionRef = admin.firestore().collection('news_groups');
 
     const date: Date = new Date();
 
-    const hours: number = 1
+    const hours: number = 48
 
     const threshold = date.getTime() - hours * 60 * 60 * 1000;
 
@@ -111,7 +111,6 @@ export const scheduledFunction = functions.pubsub.schedule('every 1 hours').onRu
         const doc = await accountRef.get();
         let account_map: Map<string, number> = value;
 
-        //t.get(accountRef).then(doc => {
         console.log("Transaction for: " + doc.get("username"));
         let map = doc.get("category_map") ? doc.get("category_map") : {};
         let merge: boolean = false;
@@ -122,7 +121,8 @@ export const scheduledFunction = functions.pubsub.schedule('every 1 hours').onRu
             //if category exist in account add new values to the existing ones
             //else we should merge a new field to the category map
             if (category in map) {
-                map[category] += count;
+                console.log("Count: " + count);
+                map[category] = map[category] + count;
             }
             else {
                 map[category] = count;
@@ -142,9 +142,8 @@ export const scheduledFunction = functions.pubsub.schedule('every 1 hours').onRu
 
     }
 
-    return batch.commit().then(function () {
-        console.log('Successful batch')
-    });;
+    await batch.commit();
+    console.log("Successfull Batch");
 });
 
 export const updateNewsGroupCategory = functions.firestore

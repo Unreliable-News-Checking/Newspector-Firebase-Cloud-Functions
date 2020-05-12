@@ -324,6 +324,119 @@ export const updateAccountInfoAfterNLP = functions.firestore
         return null;
     });
 
+export const increaseFirstNewsScore = functions.firestore
+    .document('news_groups/{newsgroup_id}')
+    .onCreate(async (snapshot, context) => {
+        const eventId = context.eventId;
+
+        const isProcessed = await isEventProcessed(eventId, "increaseFirstNewsScoreEvents");
+        if (isProcessed === true) {
+            return null;
+        }
+
+        const data = snapshot.data();
+
+        if (data) {
+            const group_leader = data.group_leader;
+            const accountRef = admin.firestore().collection('accounts').doc(group_leader);
+            await admin.firestore().runTransaction(t => {
+                return t.get(accountRef)
+                    .then(doc => {
+                        const accountData = doc.data();
+                        if (accountData) {
+                            const newNumber = accountData.news_group_leadership_count + 1;
+                            t.update(accountRef, { news_group_leadership_count: newNumber });
+                        }
+
+                    }).catch(err => {
+                        console.log('Update failure:', err);
+                    });
+            }).catch(err => {
+                console.log('Transaction failure:', err);
+            });
+            await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", Date.now());
+            console.log("Newsgroup Exists");
+            return null;
+        }
+        await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", Date.now());
+        console.log("News group does not exist");
+        return null;
+    });
+
+export const updateAccountVotes = functions.firestore
+    .document('votes/{vote_id}')
+    .onCreate(async (snapshot, context) => {
+        const eventId = context.eventId;
+
+        const isProcessed = await isEventProcessed(eventId, "updateAccountVotesEvents");
+        if (isProcessed === true) {
+            return null;
+        }
+
+        const data = snapshot.data();
+
+        if (data) {
+            const accountId = data.get("account_id");
+            const change = data.get("like");
+
+            var accountRef = admin.database().ref('accounts/' + accountId + "/likes");
+            accountRef.transaction(function (currentLikes) {
+                return currentLikes + change;
+            }).catch(err => {
+                console.log('Transaction failure:', err);
+            });
+
+            await markEventProcessed(eventId, "updateAccountVotesEvents", Date.now());
+            console.log("Account votes updated");
+            return null;
+        }
+
+        await markEventProcessed(eventId, "updateAccountVotesEvents", Date.now());
+        console.log("No account data to update");
+        return null;
+    });
+
+
+export const updateReportsForNewsAndSource = functions.firestore
+    .document('reports/{report_id}')
+    .onCreate(async (snapshot, context) => {
+        const eventId = context.eventId;
+
+        const isProcessed = await isEventProcessed(eventId, "updateAccountVotesEvents");
+        if (isProcessed === true) {
+            return null;
+        }
+
+        const data = snapshot.data();
+
+        if (data) {
+            const tweet_id = data.get("tweet_id");
+            const accountId = data.get("account_id");
+
+            var accountRef = admin.database().ref('accounts/' + accountId + "/reports");
+            accountRef.transaction(function (count) {
+                return count + 1;
+            }).catch(err => {
+                console.log('Account reports update failure:', err);
+            });
+
+            var tweetRef = admin.database().ref('tweets/' + tweet_id + "/reports");
+            tweetRef.transaction(function (count) {
+                return count + 1;
+            }).catch(err => {
+                console.log('Tweet reports update failure:', err);
+            });
+
+            await markEventProcessed(eventId, "updateAccountVotesEvents", Date.now());
+            console.log("Reports updated");
+            return null;
+        }
+
+        await markEventProcessed(eventId, "updateAccountVotesEvents", Date.now());
+        console.log("No account data to update");
+        return null;
+    });
+
 function updatePerceivedCategoryOfTweets(news_group_id: string, new_dominant_category: string) {
     const tweetsRef = admin.firestore().collection('tweets');
 
@@ -450,41 +563,3 @@ async function sendTopicMessage(url: string, title: string, body: string, id: st
 }
 
 
-export const increaseFirstNewsScore = functions.firestore
-    .document('news_groups/{newsgroup_id}')
-    .onCreate(async (snapshot, context) => {
-        const eventId = context.eventId;
-
-        const isProcessed = await isEventProcessed(eventId, "increaseFirstNewsScoreEvents");
-        if (isProcessed === true) {
-            return null;
-        }
-
-        const data = snapshot.data();
-
-        if (data) {
-            const group_leader = data.group_leader;
-            const accountRef = admin.firestore().collection('accounts').doc(group_leader);
-            await admin.firestore().runTransaction(t => {
-                return t.get(accountRef)
-                    .then(doc => {
-                        const accountData = doc.data();
-                        if (accountData) {
-                            const newNumber = accountData.news_group_leadership_count + 1;
-                            t.update(accountRef, { news_group_leadership_count: newNumber });
-                        }
-
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-            }).catch(err => {
-                console.log('Transaction failure:', err);
-            });
-            await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", Date.now());
-            console.log("Newsgroup Exists");
-            return null;
-        }
-        await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", Date.now());
-        console.log("News group does not exist");
-        return null;
-    });

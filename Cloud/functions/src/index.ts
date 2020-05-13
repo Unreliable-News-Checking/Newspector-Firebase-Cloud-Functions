@@ -5,10 +5,6 @@ import * as admin from 'firebase-admin';
 "use strict";
 admin.initializeApp();
 
-// function delay(ms: number) {
-//     return new Promise(resolve => setTimeout(resolve, ms));
-// }
-
 const isEventProcessed = async (eventId: string, collection: string) => {
     let isProcessed = false;
 
@@ -275,7 +271,10 @@ export const updateAccountInfoAfterNLP = functions.firestore
                             const accountDoc = docs[1]; //account document for tweet
                             const accountID = data_after.username; //id of account, used for map updates
                             const categoryOfTweet = data_after.category; //category of the tweet received
+                            const news_doc_id = data_after.id;
                             let last_update_date = newsGroupDoc.get("updated_at"); // the date for the last update of newsgroup
+                            let newsCount = newsGroupDoc.get("count");
+                            let newsTag = "slow_poke";
 
                             if (tweet_date > last_update_date) {
                                 last_update_date = tweet_date;
@@ -291,18 +290,29 @@ export const updateAccountInfoAfterNLP = functions.firestore
                             //if the field is missing changeValue is 1 and field values is set to 1
                             if (accountID in source_count_map) {
                                 source_count_map[accountID] = source_count_map[accountID] + 1;
+                                newsTag = "follow_up";
                             }
                             else if (!(accountID in source_count_map)) {
                                 source_count_map[accountID] = 1;
                                 merge_source_count_map = true;
                                 changeValue = 1;
+
+                                if (newsCount === 0) {
+                                    newsTag = "first_comer";
+                                } else if (newsCount === 1) {
+                                    newsTag = "close_second";
+                                } else if (newsCount === 2) {
+                                    newsTag = "late_comer";
+                                }
                             }
 
+                            const tagCount = accountDoc.get(newsTag);
+
                             //update newscount and newsgroupmembership count of the account
-                            t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1 });
+                            t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1, [newsTag]: tagCount + 1 });
 
                             //update the category count for the newsgroup that this tweet belongs to
-                            updateCategoryMapAndDateForNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map, last_update_date);
+                            updateNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map, newsTag, news_doc_id, last_update_date);
 
                         }).catch(err => {
                             console.log('Update failure:', err);
@@ -378,8 +388,9 @@ export const updateAccountVotes = functions.firestore
         if (data) {
             const accountId = data.get("account_id");
             const change = data.get("like");
+            var child = change === 1 ? "likes" : "dislikes";
 
-            var accountRef = admin.database().ref('accounts/' + accountId + "/likes");
+            var accountRef = admin.database().ref('accounts/' + accountId + "/ " + child);
             accountRef.transaction(function (currentLikes) {
                 return currentLikes + change;
             }).catch(err => {
@@ -402,7 +413,7 @@ export const updateReportsForNewsAndSource = functions.firestore
     .onCreate(async (snapshot, context) => {
         const eventId = context.eventId;
 
-        const isProcessed = await isEventProcessed(eventId, "updateAccountVotesEvents");
+        const isProcessed = await isEventProcessed(eventId, "updateReportsEvents");
         if (isProcessed === true) {
             return null;
         }
@@ -410,7 +421,7 @@ export const updateReportsForNewsAndSource = functions.firestore
         const data = snapshot.data();
 
         if (data) {
-            const tweet_id = data.get("tweet_id");
+            const tweet_id = data.id;
             const accountId = data.get("account_id");
 
             var accountRef = admin.database().ref('accounts/' + accountId + "/reports");
@@ -503,22 +514,23 @@ function findAndUpdateCategoryOfNewsGroup(doc: FirebaseFirestore.DocumentData, n
     return null;
 }
 
-function updateCategoryMapAndDateForNewsGroup(newsGroupDoc: FirebaseFirestore.DocumentData, categoryOfTweet: string, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction, merge_source_count_map: boolean, source_count_map: Object, updated_at: number) {
+function updateNewsGroup(newsGroupDoc: FirebaseFirestore.DocumentData, categoryOfTweet: string, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction, merge_source_count_map: boolean, source_count_map: Object, newsTag: string, newsId: string, updated_at: number) {
     let map = newsGroupDoc.get("category_map") ? newsGroupDoc.get("category_map") : {};
+    const count = newsGroupDoc.get("count");
     if (categoryOfTweet in map) {
         map[categoryOfTweet] = map[categoryOfTweet] + 1;
 
         if (merge_source_count_map) {
-            t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, updated_at: updated_at }, { merge: true });
+            t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, [newsTag]: newsId, updated_at: updated_at, count: count + 1 }, { merge: true });
         }
         else {
-            t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map, updated_at: updated_at });
+            t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map, [newsTag]: newsId, updated_at: updated_at, count: count + 1 });
         }
     }
     else if (!(categoryOfTweet in map)) {
         map[categoryOfTweet] = 1;
 
-        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, updated_at: updated_at }, { merge: true });
+        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, [newsTag]: newsId, updated_at: updated_at, count: count + 1 }, { merge: true });
     }
     else {
         console.log("Problem during update of the newsgroup category maps");

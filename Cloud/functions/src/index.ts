@@ -160,45 +160,17 @@ export const updateNewsGroupCategory = functions.firestore
         if (data_before && data_after) {
 
             if (data_before.category !== data_after.category) {
+                //if the changed field is category Update the tweets perceived category
+                updatePerceivedCategoryOfTweets(change.after.id, data_after.category);
 
-                //if the changed field is category do nothing
-                //this block a chain trigger resulting from updating the category after a new tweet changes the dominant category type
-                //the code for this operation given below
                 await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
                 console.log("Category Changes (Blocking Chain Trigger...)");
                 return null;
             }
-            else if (data_after.is_active !== data_before.is_active) {
-
-                await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-                console.log("Status Changes (Blocking Chain Trigger...)");
-                return null;
-            }
             else {
-                //when a new tweet is assigned a news_group_id the category counts get updated
-                //this section of the trigger calculates the new dominant category
-                //and updates the newsgroup document
-
-                await admin.firestore().runTransaction(async t => {
-                    return t.get(change.after.ref)
-                        .then(doc => {
-
-                            //Find and Update Category of Newsgroup
-                            const new_dominant_category = findAndUpdateCategoryOfNewsGroup(doc, change.after.ref, t);
-
-                            //Update the tweets perceived category
-                            updatePerceivedCategoryOfTweets(change.after.id, new_dominant_category);
-
-                        }).catch(err => {
-                            console.log('Update failure:', err);
-                        });
-
-                }).catch(err => {
-                    console.log('Transaction failure:', err);
-                });
-
+                //when a new tweet is assigned a news_group_id
                 await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-                console.log("Perceived category assignment");
+                console.log("Blocking Chain Trigger");
                 return null;
             }
         }
@@ -223,34 +195,13 @@ export const updateAccountInfoAfterNLP = functions.firestore
         const data_before = change.before.data();
 
         if (data_after && data_before) {
-            if (data_before.report_count !== data_after.report_count) {
-                // If the change is in reports do nothing
-                // This blocks a chain trigger that results after creating a report about a tweet
-                await markEventProcessed(eventId, "updateAccountInfoAfterNLPEvents", Date.now());
-                console.log("Report Count changes Blocking Chain Trigger...");
-                return null;
-            }
-            else if (data_before.perceived_category !== data_after.perceived_category && data_before.news_group_id !== "") {
-                //do nothing
-                await markEventProcessed(eventId, "updateAccountInfoAfterNLPEvents", Date.now());
-                console.log("Perceived category changes Blocking Chain Trigger...");
-                return null;
-            }
-            else if (data_before.news_group_id !== data_after.news_group_id) {
+            if (data_before.news_group_id !== data_after.news_group_id) {
                 // if it is the first time tweet's news_group_id set (new tweet) 
                 // update the category count in the account document 
                 // send topic message to users following the news_group_id
                 // update the category count in the news group document
 
                 const account = data_after.username;
-                const accountRef = admin.firestore().collection('accounts').doc(account);
-
-                const news_group_id = data_after.news_group_id;
-                const newsGroupRef = admin.firestore().collection('news_groups').doc(news_group_id);
-
-                //if this value is greater than the last update date of newsgroup it will be assigned as teh new update date
-                const tweet_date = data_after.date;
-                let merge_source_count_map = false;
 
                 // Get the photos(urls) from the tweet data
                 const photos = data_after.photos;
@@ -264,63 +215,6 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 //Send topic message to all users following the newsgroup
                 await sendTopicMessage(photo_url, account, data_after.text, data_after.news_group_id);
 
-                await admin.firestore().runTransaction(async t => {
-                    return t.getAll(newsGroupRef, accountRef)
-                        .then(docs => {
-                            const newsGroupDoc = docs[0]; //newsgroup document for tweet
-                            const accountDoc = docs[1]; //account document for tweet
-                            const accountID = data_after.username; //id of account, used for map updates
-                            const categoryOfTweet = data_after.category; //category of the tweet received
-                            const news_doc_id = data_after.id;
-                            let last_update_date = newsGroupDoc.get("updated_at"); // the date for the last update of newsgroup
-                            let newsCount = newsGroupDoc.get("count");
-                            let newsTag = "slow_poke";
-
-                            if (tweet_date > last_update_date) {
-                                last_update_date = tweet_date;
-                            }
-
-                            //Source_count_map
-                            let source_count_map = newsGroupDoc.get("source_count_map") ? newsGroupDoc.get("source_count_map") : {};
-
-                            //changeValue for membership count
-                            let changeValue = 0
-
-                            //If the field exists changeValue is 0 and field value increases by 1
-                            //if the field is missing changeValue is 1 and field values is set to 1
-                            if (accountID in source_count_map) {
-                                source_count_map[accountID] = source_count_map[accountID] + 1;
-                                newsTag = "follow_up";
-                            }
-                            else if (!(accountID in source_count_map)) {
-                                source_count_map[accountID] = 1;
-                                merge_source_count_map = true;
-                                changeValue = 1;
-
-                                if (newsCount === 0) {
-                                    newsTag = "first_comer";
-                                } else if (newsCount === 1) {
-                                    newsTag = "close_second";
-                                } else if (newsCount === 2) {
-                                    newsTag = "late_comer";
-                                }
-                            }
-
-                            const tagCount = accountDoc.get(newsTag);
-
-                            //update newscount and newsgroupmembership count of the account
-                            t.update(accountRef, { news_group_membership_count: accountDoc.get('news_group_membership_count') + changeValue, news_count: accountDoc.get('news_count') + 1, [newsTag]: tagCount + 1 });
-
-                            //update the category count for the newsgroup that this tweet belongs to
-                            updateNewsGroup(newsGroupDoc, categoryOfTweet, newsGroupRef, t, merge_source_count_map, source_count_map, newsTag, news_doc_id, last_update_date);
-
-                        }).catch(err => {
-                            console.log('Update failure:', err);
-                        });
-                }).catch(err => {
-                    console.log('Transaction failure:', err);
-                });
-
                 await markEventProcessed(eventId, "updateAccountInfoAfterNLPEvents", Date.now());
                 console.log("Finishing update block");
                 return null;
@@ -331,45 +225,6 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 return null;
             }
         }
-        return null;
-    });
-
-export const increaseFirstNewsScore = functions.firestore
-    .document('news_groups/{newsgroup_id}')
-    .onCreate(async (snapshot, context) => {
-        const eventId = context.eventId;
-
-        const isProcessed = await isEventProcessed(eventId, "increaseFirstNewsScoreEvents");
-        if (isProcessed === true) {
-            return null;
-        }
-
-        const data = snapshot.data();
-
-        if (data) {
-            const group_leader = data.group_leader;
-            const accountRef = admin.firestore().collection('accounts').doc(group_leader);
-            await admin.firestore().runTransaction(t => {
-                return t.get(accountRef)
-                    .then(doc => {
-                        const accountData = doc.data();
-                        if (accountData) {
-                            const newNumber = accountData.news_group_leadership_count + 1;
-                            t.update(accountRef, { news_group_leadership_count: newNumber });
-                        }
-
-                    }).catch(err => {
-                        console.log('Update failure:', err);
-                    });
-            }).catch(err => {
-                console.log('Transaction failure:', err);
-            });
-            await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", Date.now());
-            console.log("Newsgroup Exists");
-            return null;
-        }
-        await markEventProcessed(eventId, "increaseFirstNewsScoreEvents", Date.now());
-        console.log("News group does not exist");
         return null;
     });
 
@@ -406,7 +261,6 @@ export const updateAccountVotes = functions.firestore
         console.log("No account data to update");
         return null;
     });
-
 
 export const updateReportsForNewsAndSource = functions.firestore
     .document('reports/{report_id}')
@@ -482,59 +336,6 @@ function updatePerceivedCategoryOfTweets(news_group_id: string, new_dominant_cat
             console.log('Error getting documents', err);
         });
     return null;
-}
-
-function findAndUpdateCategoryOfNewsGroup(doc: FirebaseFirestore.DocumentData, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction) {
-    const news_group_data = doc.data();
-    if (news_group_data) {
-        let map = doc.get("category_map") ? doc.get("category_map") : {};
-        const old_dominant_category = news_group_data.category;
-        let new_dominant_category = old_dominant_category;
-        let max_category_count = 0;
-
-        if (old_dominant_category in map && old_dominant_category !== "-") {
-            max_category_count = map[old_dominant_category];
-        }
-
-        for (let key in map) {
-            let count = map[key];
-            if (count && count > max_category_count && key !== "-") {
-                new_dominant_category = key;
-                max_category_count = count;
-            }
-        }
-
-        //if the perceived category has a new value 
-        if (old_dominant_category !== new_dominant_category) {
-            //assign it to newsgroup 
-            t.update(newsGroupRef, { category: new_dominant_category });
-        }
-        return new_dominant_category;
-    }
-    return null;
-}
-
-function updateNewsGroup(newsGroupDoc: FirebaseFirestore.DocumentData, categoryOfTweet: string, newsGroupRef: FirebaseFirestore.DocumentReference, t: FirebaseFirestore.Transaction, merge_source_count_map: boolean, source_count_map: Object, newsTag: string, newsId: string, updated_at: number) {
-    let map = newsGroupDoc.get("category_map") ? newsGroupDoc.get("category_map") : {};
-    const count = newsGroupDoc.get("count");
-    if (categoryOfTweet in map) {
-        map[categoryOfTweet] = map[categoryOfTweet] + 1;
-
-        if (merge_source_count_map) {
-            t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, [newsTag]: newsId, updated_at: updated_at, count: count + 1 }, { merge: true });
-        }
-        else {
-            t.update(newsGroupRef, { category_map: map, source_count_map: source_count_map, [newsTag]: newsId, updated_at: updated_at, count: count + 1 });
-        }
-    }
-    else if (!(categoryOfTweet in map)) {
-        map[categoryOfTweet] = 1;
-
-        t.set(newsGroupRef, { category_map: map, source_count_map: source_count_map, [newsTag]: newsId, updated_at: updated_at, count: count + 1 }, { merge: true });
-    }
-    else {
-        console.log("Problem during update of the newsgroup category maps");
-    }
 }
 
 async function sendTopicMessage(url: string, title: string, body: string, id: string) {

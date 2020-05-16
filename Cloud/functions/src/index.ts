@@ -142,42 +142,42 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
     console.log("Successfull Batch");
 });
 
-export const updateNewsGroupCategory = functions.firestore
-    .document('news_groups/{newsgroup_id}')
-    .onUpdate(async (change, context) => {
-        const eventId = context.eventId;
+// export const updateNewsGroupCategory = functions.firestore
+//     .document('news_groups/{newsgroup_id}')
+//     .onUpdate(async (change, context) => {
+//         const eventId = context.eventId;
 
-        const isProcessed = await isEventProcessed(eventId, "updateNewsGroupCategoryEvents");
-        if (isProcessed === true) {
-            return null;
-        }
-
-
-        const data_before = change.before.data();
-        const data_after = change.after.data();
+//         const isProcessed = await isEventProcessed(eventId, "updateNewsGroupCategoryEvents");
+//         if (isProcessed === true) {
+//             return null;
+//         }
 
 
-        if (data_before && data_after) {
+//         const data_before = change.before.data();
+//         const data_after = change.after.data();
 
-            if (data_before.category !== data_after.category) {
-                //if the changed field is category Update the tweets perceived category
-                updatePerceivedCategoryOfTweets(change.after.id, data_after.category);
 
-                await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-                console.log("Category Changes (Blocking Chain Trigger...)");
-                return null;
-            }
-            else {
-                //when a new tweet is assigned a news_group_id
-                await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-                console.log("Blocking Chain Trigger");
-                return null;
-            }
-        }
-        await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-        console.log("No data");
-        return null;
-    });
+//         if (data_before && data_after) {
+
+//             if (data_before.category !== data_after.category) {
+//                 //if the changed field is category Update the tweets perceived category
+//                 //updatePerceivedCategoryOfTweets(change.after.id, data_after.category);
+
+//                 await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
+//                 console.log("Category Changes (Blocking Chain Trigger...)");
+//                 return null;
+//             }
+//             else {
+//                 //when a new tweet is assigned a news_group_id
+//                 await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
+//                 console.log("Blocking Chain Trigger");
+//                 return null;
+//             }
+//         }
+//         await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
+//         console.log("No data");
+//         return null;
+//     });
 
 
 export const updateAccountInfoAfterNLP = functions.firestore

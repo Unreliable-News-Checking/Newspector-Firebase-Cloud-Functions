@@ -49,7 +49,7 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
 
     const date: Date = new Date();
 
-    const hours: number = 48
+    const hours: number = 1
 
     const threshold = date.getTime() - hours * 60 * 60 * 1000;
 
@@ -142,42 +142,7 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
     console.log("Successfull Batch");
 });
 
-// export const updateNewsGroupCategory = functions.firestore
-//     .document('news_groups/{newsgroup_id}')
-//     .onUpdate(async (change, context) => {
-//         const eventId = context.eventId;
 
-//         const isProcessed = await isEventProcessed(eventId, "updateNewsGroupCategoryEvents");
-//         if (isProcessed === true) {
-//             return null;
-//         }
-
-
-//         const data_before = change.before.data();
-//         const data_after = change.after.data();
-
-
-//         if (data_before && data_after) {
-
-//             if (data_before.category !== data_after.category) {
-//                 //if the changed field is category Update the tweets perceived category
-//                 //updatePerceivedCategoryOfTweets(change.after.id, data_after.category);
-
-//                 await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-//                 console.log("Category Changes (Blocking Chain Trigger...)");
-//                 return null;
-//             }
-//             else {
-//                 //when a new tweet is assigned a news_group_id
-//                 await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-//                 console.log("Blocking Chain Trigger");
-//                 return null;
-//             }
-//         }
-//         await markEventProcessed(eventId, "updateNewsGroupCategoryEvents", Date.now());
-//         console.log("No data");
-//         return null;
-//     });
 
 
 export const updateAccountInfoAfterNLP = functions.firestore
@@ -229,7 +194,7 @@ export const updateAccountInfoAfterNLP = functions.firestore
     });
 
 export const updateAccountVotes = functions.firestore
-    .document('votes/{vote_id}')
+    .document('user_rates_news_source/{vote_id}')
     .onCreate(async (snapshot, context) => {
         const eventId = context.eventId;
 
@@ -243,11 +208,11 @@ export const updateAccountVotes = functions.firestore
         if (data) {
             const accountId = data.get("account_id");
             const change = data.get("like");
-            var child = change === 1 ? "likes" : "dislikes";
+            var child = change === true ? "likes" : "dislikes";
 
             var accountRef = admin.database().ref('accounts/' + accountId + "/ " + child);
             accountRef.transaction(function (currentLikes) {
-                return currentLikes + change;
+                return currentLikes + 1;
             }).catch(err => {
                 console.log('Transaction failure:', err);
             });

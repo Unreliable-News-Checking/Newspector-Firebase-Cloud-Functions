@@ -203,11 +203,11 @@ export const updateAccountVotes = functions.firestore
         const data = snapshot.data();
 
         if (data) {
-            const accountId = data.news_source_id;
+            const news_source_id = data.news_source_id;
             const change = data.vote;
             var child = change === true ? "likes" : "dislikes";
 
-            var accountRef = admin.database().ref('accounts/' + accountId + "/" + child);
+            var accountRef = admin.database().ref('accounts/' + news_source_id + "/" + child);
             accountRef.transaction(function (currentLikes) {
                 return currentLikes + 1;
             }).catch(err => {
@@ -237,17 +237,17 @@ export const updateReportsForNewsAndSource = functions.firestore
         const data = snapshot.data();
 
         if (data) {
-            const tweet_id = data.id;
-            const accountId = data.get("account_id");
+            const news_id = data.news_id;
+            const news_source_id = data.news_source_id;
 
-            var accountRef = admin.database().ref('accounts/' + accountId + "/reports");
+            var accountRef = admin.database().ref('accounts/' + news_source_id + "/reports");
             accountRef.transaction(function (count) {
                 return count + 1;
             }).catch(err => {
                 console.log('Account reports update failure:', err);
             });
 
-            var tweetRef = admin.database().ref('tweets/' + tweet_id + "/reports");
+            var tweetRef = admin.database().ref('tweets/' + news_id + "/reports");
             tweetRef.transaction(function (count) {
                 return count + 1;
             }).catch(err => {

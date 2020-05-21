@@ -142,9 +142,6 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
     console.log("Successfull Batch");
 });
 
-
-
-
 export const updateAccountInfoAfterNLP = functions.firestore
     .document('tweets/{tweet_id}')
     .onUpdate(async (change, context) => {
@@ -206,8 +203,8 @@ export const updateAccountVotes = functions.firestore
         const data = snapshot.data();
 
         if (data) {
-            const accountId = data.get("account_id");
-            const change = data.get("like");
+            const accountId = data.get("news_source_id");
+            const change = data.get("vote");
             var child = change === true ? "likes" : "dislikes";
 
             var accountRef = admin.database().ref('accounts/' + accountId + "/ " + child);
@@ -266,42 +263,6 @@ export const updateReportsForNewsAndSource = functions.firestore
         console.log("No account data to update");
         return null;
     });
-
-function updatePerceivedCategoryOfTweets(news_group_id: string, new_dominant_category: string) {
-    const tweetsRef = admin.firestore().collection('tweets');
-
-    tweetsRef.where('news_group_id', '==', news_group_id).get()
-        .then(snapshot => {
-            if (snapshot.empty) {
-                console.log('No matching documents.');
-                return null;
-            }
-
-            snapshot.forEach(async tweet_doc => {
-                await admin.firestore().runTransaction(transaction => {
-                    return transaction.get(tweet_doc.ref)
-                        .then(document => {
-                            const data = document.data();
-                            if (data) {
-                                const old_category = data.perceived_category;
-                                if (old_category !== new_dominant_category) {
-                                    transaction.update(tweet_doc.ref, { perceived_category: new_dominant_category });
-                                }
-                            }
-                        }).catch(err => {
-                            console.log('Update failure:', err);
-                        });
-                }).catch(err => {
-                    console.log('Transaction failure:', err);
-                });
-            });
-            return null;
-        })
-        .catch(err => {
-            console.log('Error getting documents', err);
-        });
-    return null;
-}
 
 async function sendTopicMessage(url: string, title: string, body: string, id: string) {
     let priority = "high" as const;

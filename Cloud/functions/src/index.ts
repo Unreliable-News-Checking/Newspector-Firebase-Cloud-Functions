@@ -203,8 +203,8 @@ export const updateAccountVotes = functions.firestore
         const data = snapshot.data();
 
         if (data) {
-            const accountId = data.get("news_source_id");
-            const change = data.get("vote");
+            const accountId = data.news_source_id;
+            const change = data.vote;
             var child = change === true ? "likes" : "dislikes";
 
             var accountRef = admin.database().ref('accounts/' + accountId + "/ " + child);

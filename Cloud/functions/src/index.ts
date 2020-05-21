@@ -207,7 +207,7 @@ export const updateAccountVotes = functions.firestore
             const change = data.vote;
             var child = change === true ? "likes" : "dislikes";
 
-            var accountRef = admin.database().ref('accounts/' + accountId + "/ " + child);
+            var accountRef = admin.database().ref('accounts/' + accountId + "/" + child);
             accountRef.transaction(function (currentLikes) {
                 return currentLikes + 1;
             }).catch(err => {

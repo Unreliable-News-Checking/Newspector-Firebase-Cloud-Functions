@@ -49,7 +49,7 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
 
     const date: Date = new Date();
 
-    const hours: number = 1
+    const hours: number = 48
 
     const threshold = date.getTime() - hours * 60 * 60 * 1000;
 
@@ -225,7 +225,7 @@ export const updateAccountVotes = functions.firestore
     });
 
 export const updateReportsForNewsAndSource = functions.firestore
-    .document('reports/{report_id}')
+    .document('user_reports_tweet/{report_id}')
     .onCreate(async (snapshot, context) => {
         const eventId = context.eventId;
 
@@ -237,7 +237,7 @@ export const updateReportsForNewsAndSource = functions.firestore
         const data = snapshot.data();
 
         if (data) {
-            const news_id = data.news_id;
+            const news_article_id = data.news_article_id;
             const news_source_id = data.news_source_id;
 
             var accountRef = admin.database().ref('accounts/' + news_source_id + "/reports");
@@ -247,7 +247,7 @@ export const updateReportsForNewsAndSource = functions.firestore
                 console.log('Account reports update failure:', err);
             });
 
-            var tweetRef = admin.database().ref('tweets/' + news_id + "/reports");
+            var tweetRef = admin.database().ref('tweets/' + news_article_id + "/reports");
             tweetRef.transaction(function (count) {
                 return count + 1;
             }).catch(err => {

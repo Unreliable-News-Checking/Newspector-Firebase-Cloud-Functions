@@ -43,19 +43,22 @@ const markEventProcessed = async (eventId: string, collection: string, date: num
     });
 }
 
-export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRun(async (context) => {
+export const scheduledFunction = functions.pubsub.schedule('every 30 minutes').onRun(async (context) => {
 
     const newsGroupCollectionRef = admin.firestore().collection('news_groups');
 
     const date: Date = new Date();
 
-    const hours: number = 48
+    const hours: number = 1
 
     const threshold = date.getTime() - hours * 60 * 60 * 1000;
 
     console.log("Threshold in milli seconds: " + threshold);
 
-    const all_accounts: Map<string, Map<string, number>> = new Map();
+    const category_all_accounts: Map<string, Map<string, number>> = new Map();
+    const tag_all_accounts: Map<string, Map<string, number>> = new Map();
+    const membership_accounts: Map<string, number> = new Map();
+    const tags = ["first_reporter", "close_second", "late_comer", "slow_poke", "follow_up"];
 
     await newsGroupCollectionRef.where('is_active', '==', true).where('created_at', '<=', threshold).get()
         .then(async snapshot => {
@@ -74,9 +77,17 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
 
                 // Form Map of Maps which have all category counts for all accounts
                 for (let key in map) {
+
+                    if (membership_accounts.has(key)) {
+                        membership_accounts.set(key, membership_accounts.get(key)! + 1);
+                    }
+                    else {
+                        membership_accounts.set(key, 1);
+                    }
+
                     let account: Map<string, number> = new Map();
-                    if (all_accounts.has(key)) {
-                        account = all_accounts.get(key)!;
+                    if (category_all_accounts.has(key)) {
+                        account = category_all_accounts.get(key)!;
                         if (account.has(perceived_category)) {
                             account.set(perceived_category, account.get(perceived_category) + map[key]);
                         }
@@ -87,8 +98,38 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
                     else {
                         account.set(perceived_category, map[key]);
                     }
-                    all_accounts.set(key, account);
+                    category_all_accounts.set(key, account);
                 }
+
+                // Form Map of Maps which have all tag counts for all accounts
+                // Can turn into a map and then use keys as tags
+                const fr_map = newsGroupDoc.get("first_reporter_map") ? newsGroupDoc.get("first_reporter_map") : {};
+                const cs_map = newsGroupDoc.get("close_second_map") ? newsGroupDoc.get("close_second_map") : {};
+                const lc_map = newsGroupDoc.get("late_comer_map") ? newsGroupDoc.get("late_comer_map") : {};
+                const sp_map = newsGroupDoc.get("slow_poke_map") ? newsGroupDoc.get("slow_poke_map") : {};
+                const fu_map = newsGroupDoc.get("follow_up_map") ? newsGroupDoc.get("follow_up_map") : {};
+                const tag_map_arr = [fr_map, cs_map, lc_map, sp_map, fu_map];
+
+                let index = 0;
+                tag_map_arr.forEach(function (tagMap) {
+                    for (let key in tagMap) {
+                        let account: Map<string, number> = new Map();
+                        if (tag_all_accounts.has(key)) {
+                            account = tag_all_accounts.get(key)!;
+                            if (account.has(tags[index])) {
+                                account.set(tags[index], account.get(tags[index]) + tagMap[key]);
+                            }
+                            else {
+                                account.set(tags[index], tagMap[key]);
+                            }
+                        }
+                        else {
+                            account.set(tags[index], tagMap[key]);
+                        }
+                        tag_all_accounts.set(key, account);
+                    }
+                    index++;
+                });
 
                 await newsGroupDoc.ref.update({ is_active: false }).catch(err => {
                     console.log('Error updating newsgroup status', err);
@@ -99,17 +140,19 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
             console.log('Error getting documents', err);
         });
 
+    // Create a batch for category update
     let batch = admin.firestore().batch();
 
-    for (let [key, value] of all_accounts) {
+    for (let [key, value] of category_all_accounts) {
         console.log("Account: " + key);
         const accountRef = admin.firestore().collection('accounts').doc(key);
         const doc = await accountRef.get();
-        let account_map: Map<string, number> = value;
+        const account_map: Map<string, number> = value;
 
-        console.log("Transaction for: " + doc.get("username"));
+        console.log("Category update for: " + key);
         let map = doc.get("category_map") ? doc.get("category_map") : {};
         let merge: boolean = false;
+        let total = 0;
 
         for (let [category, count] of account_map) {
             console.log("Category: " + category + " in account: " + key);
@@ -124,22 +167,46 @@ export const scheduledFunction = functions.pubsub.schedule('every 2 hours').onRu
                 map[category] = count;
                 merge = true;
             }
+
+            total += count;
+        }
+
+        const membership_count = doc.get("news_group_membership_count") + membership_accounts.get(key);
+        const news_count = doc.get("news_count") + total;
+
+        let data_to_update: any = {
+            category_map: map,
+            news_group_membership_count: membership_count,
+            news_count: news_count
+        };
+
+        console.log("Tag update for: " + key);
+        const tag_map: Map<string, number> = tag_all_accounts.get(key)!;
+
+        for (let [tag, count] of tag_map) {
+            let tag_count = doc.get(tag) ? doc.get(tag) : 0;
+            console.log("Tag: " + tag + " in account: " + key);
+
+            tag_count += count;
+
+            data_to_update[tag] = tag_count;
         }
 
         //update category map of account 
         if (merge === true) {
             console.log("Merge true");
-            batch.set(accountRef, { category_map: map }, { merge: true });
+            batch.set(accountRef, data_to_update, { merge: true });
         }
         else {
             console.log("Merge false");
-            batch.update(accountRef, { category_map: map });
+            batch.update(accountRef, data_to_update);
         }
 
     }
 
     await batch.commit();
     console.log("Successfull Batch");
+    
 });
 
 export const updateAccountInfoAfterNLP = functions.firestore
@@ -163,7 +230,7 @@ export const updateAccountInfoAfterNLP = functions.firestore
                 // send topic message to users following the news_group_id
                 // update the category count in the news group document
 
-                const account = data_after.username;
+                const account = data_after.name !== "" ? data_after.name : data_after.username;
 
                 // Get the photos(urls) from the tweet data
                 const photos = data_after.photos;
